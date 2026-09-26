@@ -35,6 +35,8 @@ A provider must distinguish an accessible empty album from a failed or incomplet
 
 Describe the problem, the resulting behavior, and how you validated the change. Update both README languages when changing user-facing behavior or setup instructions. Keep the English and Russian versions of these contributor guidelines and the security policy aligned.
 
+Edit documentation in `docs/en/` and `docs/ru/`. The root `README.md`, `CONTRIBUTING.md`, and `SECURITY.md` are symlinks to the English originals. In these three English files, start local Markdown link paths with `/` so GitHub resolves them from the repository root in both locations.
+
 Use synthetic fixtures and examples. Do not add real sharing links, tokens, device dumps, or personal photos to source code, fixtures, logs, or issue reports. Keep `.env`, `sources.toml`, and `data/` local. Report vulnerabilities through the process in [SECURITY.md](/docs/en/SECURITY.md).
 
 Maintainers: see [the release guide](/docs/en/releases.md) for CI, multi-platform image publishing, registry secrets, and tag-based releases.

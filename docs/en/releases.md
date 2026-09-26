@@ -8,6 +8,8 @@
 - **Packages** runs on the same events and builds a Python wheel, an sdist, and a complete source archive from the Git commit. It verifies installation from all three archives and uploads them with `checksums.txt` as an Actions artifact.
 - **Release** runs when a tag matching `v[0-9]*` is pushed. It calls both workflows, creates a draft GitHub release, builds and checks images in both registries on each native architecture, then publishes multi-platform tags and the release. A failed run leaves the release as a draft; the `latest` tags are updated only after both version manifests have been verified.
 
+CI and Packages skip push and pull-request events when all changed files are under `docs/` or are Markdown files in the repository root. Changes to source code, dependencies, build files, or workflows still trigger both workflows, including commits that also update documentation. Manual runs and checks invoked by Release always run.
+
 Published containers support `linux/amd64` and `linux/arm64`:
 
 ```text
