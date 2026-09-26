@@ -1,7 +1,9 @@
 **
 !pyproject.toml
 !README.md
-!README.ru.md
+!docs/
+!docs/en/
+!docs/en/README.md
 !LICENSE
 !NOTICE
 !src/

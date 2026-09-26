@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "timesframesync"
 version = "0.5.0"
-readme = "README.md"
+readme = "docs/en/README.md"
 description = "Sync public albums from multiple photo services to Divoom Times Frame"
 authors = [{name = "impishMD"}]
 license = "Apache-2.0"
