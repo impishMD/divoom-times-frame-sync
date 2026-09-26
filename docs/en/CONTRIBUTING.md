@@ -1,6 +1,6 @@
 # Contributing to Divoom Times Frame Sync
 
-**English** | [Русский](../ru/CONTRIBUTING.md)
+**English** | [Русский](/docs/ru/CONTRIBUTING.md)
 
 ## Development setup
 
@@ -29,16 +29,16 @@ Paths below are relative to `src/timesframesync/`:
 - `frame.py` — the local Divoom API.
 - `cli.py` — the `tfs` and `timesframesync` commands.
 
-A provider must distinguish an accessible empty album from a failed or incomplete listing. IDs and revisions must be stable; temporary CDN URLs must not be part of the cache key. See the [provider guide](sources.md) and [storage guide](storage.md).
+A provider must distinguish an accessible empty album from a failed or incomplete listing. IDs and revisions must be stable; temporary CDN URLs must not be part of the cache key. See the [provider guide](/docs/en/sources.md) and [storage guide](/docs/en/storage.md).
 
 ## Submitting changes
 
 Describe the problem, the resulting behavior, and how you validated the change. Update both README languages when changing user-facing behavior or setup instructions. Keep the English and Russian versions of these contributor guidelines and the security policy aligned.
 
-Use synthetic fixtures and examples. Do not add real sharing links, tokens, device dumps, or personal photos to source code, fixtures, logs, or issue reports. Keep `.env`, `sources.toml`, and `data/` local. Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+Use synthetic fixtures and examples. Do not add real sharing links, tokens, device dumps, or personal photos to source code, fixtures, logs, or issue reports. Keep `.env`, `sources.toml`, and `data/` local. Report vulnerabilities through the process in [SECURITY.md](/docs/en/SECURITY.md).
 
-Maintainers: see [the release guide](releases.md) for CI, multi-platform image publishing, registry secrets, and tag-based releases.
+Maintainers: see [the release guide](/docs/en/releases.md) for CI, multi-platform image publishing, registry secrets, and tag-based releases.
 
 ## Licensing
 
-Contributions are governed by the contribution terms of the project's [Apache License 2.0](../../LICENSE). Preserve existing copyright and license notices, including [NOTICE](../../NOTICE). Do not copy third-party code without retaining its required notices and checking license compatibility.
+Contributions are governed by the contribution terms of the project's [Apache License 2.0](/LICENSE). Preserve existing copyright and license notices, including [NOTICE](/NOTICE). Do not copy third-party code without retaining its required notices and checking license compatibility.

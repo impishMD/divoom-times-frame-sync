@@ -1,6 +1,6 @@
 # Divoom Times Frame Sync
 
-**English** | [Русский](../ru/README.md)
+**English** | [Русский](/docs/ru/README.md)
 
 Sync **public photo albums** from Google Photos, iCloud Photos, Immich, OneDrive, and Yandex Disk to your **Divoom Times Frame**.
 
@@ -80,7 +80,7 @@ url_env = "ICLOUD_SHARE_URL"
 target_album = "Photos"
 ```
 
-Add more `[[sources]]` sections for additional albums, including albums from the same service. Give each source a unique, stable `id` and its own sharing link. The same `target_album` combines sources; different values sync to separate albums on the frame. See [source configuration](sources.md) for the full format.
+Add more `[[sources]]` sections for additional albums, including albums from the same service. Give each source a unique, stable `id` and its own sharing link. The same `target_album` combines sources; different values sync to separate albums on the frame. See [source configuration](/docs/en/sources.md) for the full format.
 
 ### 2. Start the service
 
@@ -165,7 +165,7 @@ Photos need temporary space for a prepared image. Video conversion needs room fo
 
 Unchanged items are not downloaded from the source again. Integrity checks still read files back from the frame over the LAN, so large videos can take time to verify. Interrupted uploads retain prepared files for a retry; obsolete temporary versions are cleaned up when the source list is refreshed successfully.
 
-**Keep `data/` between runs and container restarts.** Without it, matching files may be found again, but ownership of items already removed from the sources cannot be recovered. Reprocessing with different settings or codecs may also produce a separate copy. See [storage and recovery](storage.md).
+**Keep `data/` between runs and container restarts.** Without it, matching files may be found again, but ownership of items already removed from the sources cannot be recovered. Reprocessing with different settings or codecs may also produce a separate copy. See [storage and recovery](/docs/en/storage.md).
 
 ## Settings
 
@@ -213,23 +213,23 @@ Restart the service after changing configuration. For Compose, use `docker compo
 
 ## Documentation
 
-- [Multiple sources and destination albums](sources.md)
-- [Storage, temporary files, and recovery](storage.md)
-- [Mirror and append modes](sync-modes.md)
-- [Source service APIs](source-api.md)
-- [Frame API reference](frame-api.md)
-- [Native album LAN protocol](protocol.md)
+- [Multiple sources and destination albums](/docs/en/sources.md)
+- [Storage, temporary files, and recovery](/docs/en/storage.md)
+- [Mirror and append modes](/docs/en/sync-modes.md)
+- [Source service APIs](/docs/en/source-api.md)
+- [Frame API reference](/docs/en/frame-api.md)
+- [Native album LAN protocol](/docs/en/protocol.md)
 
 ## Contributing and security
 
-- [Contributor guidelines](CONTRIBUTING.md)
-- [Security policy and vulnerability reporting](SECURITY.md)
-- [Release process and registry setup](releases.md)
+- [Contributor guidelines](/docs/en/CONTRIBUTING.md)
+- [Security policy and vulnerability reporting](/docs/en/SECURITY.md)
+- [Release process and registry setup](/docs/en/releases.md)
 
 Source archives, Python packages, checksums, and container digests are available on the [releases page](https://github.com/impishMD/divoom-times-frame-sync/releases).
 
 ## License
 
-Licensed under the [Apache License 2.0](../../LICENSE). Copyright 2026 [impishMD](https://github.com/impishMD). Attribution is recorded in [NOTICE](../../NOTICE).
+Licensed under the [Apache License 2.0](/LICENSE). Copyright 2026 [impishMD](https://github.com/impishMD). Attribution is recorded in [NOTICE](/NOTICE).
 
 When redistributing this project or derivative works, follow the license's requirements for the license copy, change notices, and applicable copyright and attribution notices. Dependencies and external tools retain their own licenses.

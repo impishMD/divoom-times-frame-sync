@@ -1,6 +1,6 @@
 # Security policy
 
-**English** | [Русский](../ru/SECURITY.md)
+**English** | [Русский](/docs/ru/SECURITY.md)
 
 ## Reporting a vulnerability
 
