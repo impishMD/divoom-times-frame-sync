@@ -43,10 +43,11 @@ def test_google_paginates_counts_video_and_stable_ids():
     client = google_client(google_data([google_item("a")], 3, "page2"))
     client.next_page = Mock(return_value=google_data([google_item("b", video=True), google_item("c")], 3))
     album = client.album()
-    assert [p.id for p in album.photos] == ["a", "c"]
-    assert album.skipped == 1
+    assert [(p.id, p.kind) for p in album.photos] == [("a", "photo"), ("b", "video"), ("c", "photo")]
+    assert album.photo_count == 2 and album.video_count == 1 and album.skipped == 0
     client.next_page.assert_called_once_with("remote-album", "private-key", "page2")
-    assert set(client.images) == {"a", "c"}
+    assert set(client.images) == {"a", "b", "c"}
+    assert client.videos == {"b": "https://lh3.googleusercontent.com/b=dv"}
 
 
 @pytest.mark.parametrize("data", [google_data([], 1), google_data([google_item("a"), google_item("a")], 2),

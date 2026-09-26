@@ -20,6 +20,7 @@ class PublicSource:
         try:
             response = self.session.request(method, url, timeout=(10, 90), **kwargs)
             if not response.ok:
+                response.close()
                 raise SyncError(f"{self.label}: HTTP {response.status_code}")
             return response
         except requests.RequestException:

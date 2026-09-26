@@ -26,7 +26,7 @@ from timesframesync.source import Album, Asset
 from timesframesync.sync import Synchronizer
 from timesframesync.video import file_digest, make_cover, probe, run_media, transcode
 from test_sync import FakeFrame, jpeg
-from test_sources import multi, cycle
+from test_sources import multi, cycle, google_client, google_data, google_item
 
 
 class VideoFrame(FakeFrame):
@@ -121,6 +121,25 @@ def test_partial_video_download_is_discarded(video_sync):
         sync.sync_album()
     assert not list(sync.config.data_dir.glob("videos/*"))
     assert sync.frame.uploads == 0
+
+
+def test_google_video_upload_cleanup_and_unchanged_second_cycle(video_sync):
+    from test_google_photos import video_response
+
+    sync = video_sync
+    source = google_client(google_data([google_item("clip", video=True)], 1))
+    listing = source.request.return_value
+    playback = video_response(b"google-video")
+    source.request.side_effect = [listing, playback, listing]
+    sync.immich = source
+    assert sync.refresh()["videos"] == 1
+    result = sync.sync_album()
+    assert result["videos"] == result["downloaded"] == result["uploaded"] == 1
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    sync.refresh()
+    result = sync.sync_album()
+    assert result["downloaded"] == result["uploaded"] == 0
+    assert source.request.call_count == 3
 
 
 @pytest.mark.parametrize("damage", ["movie", "cover", "flag"])

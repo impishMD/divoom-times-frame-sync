@@ -3,8 +3,11 @@
 
 """Public shared-page protocol, not the OAuth Photos Library API."""
 import json
+from pathlib import Path
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
+
+import requests
 
 from ..config import SyncError
 from ..source import Album, Asset
@@ -14,6 +17,10 @@ from .public import PublicSource
 class GooglePhotos(PublicSource):
     label = "Google Photos"
     image_domains = ("googleusercontent.com",)
+
+    def __init__(self, url: str):
+        super().__init__(url)
+        self.videos: dict[str, str] = {}
 
     @staticmethod
     def initial_data(html: str) -> list:
@@ -54,8 +61,7 @@ class GooglePhotos(PublicSource):
             album_id, title, key, count = info[0], info[1], info[19], info[21]
             if not all(isinstance(x, str) and x for x in (album_id, title, key)) or type(count) is not int or count < 0:
                 raise ValueError
-            photos, images, ids, tokens = [], {}, set(), set()
-            skipped = 0
+            photos, images, videos, ids, tokens = [], {}, {}, set(), set()
             for _ in range(10000):
                 items = data[1]
                 if items is None and count == 0:
@@ -67,15 +73,18 @@ class GooglePhotos(PublicSource):
                     if not isinstance(asset_id, str) or not asset_id or asset_id in ids:
                         raise ValueError
                     ids.add(asset_id)
-                    if len(item) > 9 and isinstance(item[9], dict) and "76647426" in item[9]:
-                        skipped += 1
-                        continue
+                    video = len(item) > 9 and isinstance(item[9], dict) and "76647426" in item[9]
                     url, width, height = details[:3]
                     if not isinstance(url, str) or not all(type(n) is int and n > 0 for n in (width, height)):
                         raise ValueError
                     revision = json.dumps([item[2], item[5], width, height])
-                    photos.append(Asset(asset_id, revision, asset_id + ".jpg"))
+                    kind, extension = ("video", ".mp4") if video else ("photo", ".jpg")
+                    photos.append(Asset(asset_id, revision, asset_id + extension, kind))
                     images[asset_id] = url + "=w2048-h2048"
+                    if video:
+                        # Resolve fresh CDN URLs on every listing; never use
+                        # their temporary signatures as a media revision.
+                        videos[asset_id] = url + "=dv"
                 token = data[2]
                 if not token:
                     break
@@ -88,6 +97,47 @@ class GooglePhotos(PublicSource):
             if len(ids) != count:
                 raise ValueError
             self.images = images
-            return Album(album_id, title, photos, skipped)
+            self.videos = videos
+            return Album(album_id, title, photos)
         except (ValueError, TypeError, KeyError, IndexError):
             raise SyncError("Google Photos: incomplete or unsupported album listing; retry") from None
+
+    def download_video(self, asset_id: str, destination: Path) -> None:
+        url = self.videos.get(asset_id)
+        if not url:
+            raise SyncError("Google Photos: video missing from the last album listing; refresh and retry")
+        try:
+            # Public =dv URLs redirect to video-downloads.googleusercontent.com.
+            # Validate each hop before sending a request, and stream the complete
+            # response to the cache's temporary file without buffering it in RAM.
+            for _ in range(6):
+                parsed = urlsplit(url)
+                if (parsed.scheme != "https" or not (parsed.hostname or "").endswith(".googleusercontent.com")
+                        or parsed.username or parsed.password):
+                    raise SyncError("Google Photos: unsupported video host")
+                with self.request("GET", url, stream=True, allow_redirects=False,
+                                  headers={"Accept-Encoding": "identity"}) as response:
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("Location")
+                        if not location:
+                            raise SyncError("Google Photos: invalid video redirect")
+                        url = urljoin(url, location)
+                        continue
+                    if response.status_code != 200 or not response.headers.get("Content-Type", "").lower().startswith("video/"):
+                        raise SyncError("Google Photos: video is not ready or response is not a complete video; retry")
+                    length = response.headers.get("Content-Length")
+                    if length is not None and (not length.isdigit() or int(length) <= 0):
+                        raise SyncError("Google Photos: invalid video length")
+                    size = 0
+                    with destination.open("wb") as file:
+                        for chunk in response.iter_content(1024 * 1024):
+                            size += file.write(chunk)
+                    identity = response.headers.get("Content-Encoding", "").lower() in {"", "identity"}
+                    if not size or (length is not None and identity and size != int(length)):
+                        raise SyncError("Google Photos: empty or incomplete video; retry")
+                    return
+            raise SyncError("Google Photos: too many video redirects")
+        except requests.RequestException:
+            raise SyncError("Google Photos: video download interrupted; retry") from None
+        except ValueError:
+            raise SyncError("Google Photos: invalid video URL or response; retry") from None

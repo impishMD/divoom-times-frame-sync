@@ -22,7 +22,7 @@ The service uses **album sharing links** that can be opened without signing into
 
 | Service | Album link format | Photos | Video |
 | --- | --- | --- | --- |
-| Google Photos | `photos.app.goo.gl/...` or `photos.google.com/share/...` | Yes | Not yet |
+| Google Photos | `photos.app.goo.gl/...` or `photos.google.com/share/...` | Yes | Yes |
 | iCloud Photos | `photos.icloud.com/shared/album/...` | Yes | Not yet |
 | Immich | `<your-server>/share/...`, optionally with a password | Yes | Yes |
 | OneDrive | `1drv.ms/a/...` from a personal account | Yes | Not yet |
@@ -101,7 +101,7 @@ docker compose up -d --no-build
 docker compose logs -f
 ```
 
-To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.4.0`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
+To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.5.0`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
 
 The container includes FFmpeg for video conversion. It reads `sources.toml` through a read-only mount and stores sync state in `data/`. It needs outbound access to your album services and the frame's local API, normally on port `9000`. No inbound ports need to be published.
 
@@ -153,7 +153,9 @@ The frame displays one album at a time. For one slideshow containing all your so
 
 Photos are resized to 800×1280 and uploaded as WebP. `IMAGE_FIT=contain` keeps the whole image with borders; `cover` fills the screen by cropping.
 
-Video sync is currently available for Immich albums. Videos are converted locally to MP4 with H.264 video and AAC audio when present, at 800×1280 and 30 fps. Rotation is applied, `IMAGE_FIT` controls framing, and the full duration is retained. Each video is uploaded with a WebP cover and follows the same sync rules as photos. Enable video autoplay on the frame for automatic playback.
+Video sync is available for Google Photos and Immich albums. Videos are converted locally to MP4 with H.264 video and AAC audio when present, at 800×1280 and 30 fps. Rotation is applied, `IMAGE_FIT` controls framing, and the full duration is retained. Each video is uploaded with a WebP cover and follows the same sync rules as photos. Enable video autoplay on the frame for automatic playback.
+
+Google Photos supplies a transcoded video download through the public album link. Newly uploaded videos may need time to finish processing on Google's side. If a video is unavailable or its download fails, the service retries on the next cycle and preserves existing album items.
 
 ## Local storage
 
@@ -205,7 +207,7 @@ Restart the service after changing configuration. For Compose, use `docker compo
 ## Current scope
 
 - Sources must be accessible through supported public album links. Private account libraries are not supported.
-- Video from services other than Immich is currently skipped. iCloud Live Photos are synced as still images.
+- Video from iCloud Photos, OneDrive, and Yandex Disk is currently skipped. iCloud Live Photos are synced as still images.
 - Legacy iCloud `sharedalbum/#...` links, public folders on Yandex Disk or OneDrive, and OneDrive for Business/SharePoint are not supported.
 - Public album viewers may change their protocols. Frame API compatibility depends on the firmware.
 
