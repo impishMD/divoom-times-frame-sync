@@ -1,0 +1,11 @@
+**
+!pyproject.toml
+!README.md
+!README.ru.md
+!LICENSE
+!NOTICE
+!src/
+!src/timesframesync/
+!src/timesframesync/**
+**/__pycache__/
+**/*.pyc

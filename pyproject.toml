@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timesframesync"
+version = "0.4.0"
+readme = "README.md"
+description = "Sync public albums from multiple photo services to Divoom Times Frame"
+authors = [{name = "impishMD"}]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+dependencies = ["requests>=2.32,<3", "Pillow>=11,<13", "python-dotenv>=1,<2"]
+
+[project.urls]
+Repository = "https://github.com/impishMD/divoom-times-frame-sync"
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+tfs = "timesframesync.cli:main"
+timesframesync = "timesframesync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

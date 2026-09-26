@@ -1,0 +1,8 @@
+include README.md README.ru.md LICENSE NOTICE .dockerignore .gitignore .env.example sources.example.toml Dockerfile compose.yaml CONTRIBUTING.md SECURITY.md
+recursive-include docs *.md
+recursive-include tests *.py
+recursive-include scripts *.py *.sh
+prune data
+prune research
+prune .venv
+exclude .env sources.toml sources.local*.toml

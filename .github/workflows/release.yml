@@ -1,0 +1,178 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+# Serialize releases so two versions cannot update latest concurrently.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DOCKERHUB_IMAGE: docker.io/impishmd/divoom-times-frame-sync
+  VERSION: ${{ github.ref_name }}
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+  packages:
+    uses: ./.github/workflows/packages.yml
+    with:
+      release: true
+  draft:
+    needs: [checks, packages]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-packages
+          path: dist
+      - name: Create or resume an unpublished release
+        shell: bash
+        run: |
+          (cd dist && sha256sum -c checksums.txt)
+          if gh release view "$VERSION" --json isDraft > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+            jq -e '.isDraft == true' "$RUNNER_TEMP/release.json"
+            gh release upload "$VERSION" dist/* --clobber
+            gh release edit "$VERSION" --title "Divoom Times Frame Sync $VERSION" --notes-file "docs/releases/$VERSION.md"
+          else
+            args=(--draft --verify-tag --title "Divoom Times Frame Sync $VERSION" --notes-file "docs/releases/$VERSION.md")
+            if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then args+=(--prerelease); fi
+            gh release create "$VERSION" dist/* "${args[@]}"
+          fi
+  images:
+    needs: draft
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    environment: docker_hub
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set GHCR image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USR }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push by digest to both registries
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          tags: |
+            ${{ steps.image.outputs.name }}
+            ${{ env.DOCKERHUB_IMAGE }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,scope=container-${{ matrix.arch }},mode=max
+      - name: Run each published image on its native architecture
+        env:
+          GHCR_IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          bash scripts/check-container.sh "$GHCR_IMAGE@$DIGEST"
+          bash scripts/check-container.sh "$DOCKERHUB_IMAGE@$DIGEST"
+          mkdir -p digests
+          printf '%s\n' "$DIGEST" > "digests/${{ matrix.arch }}.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*.txt
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: docker_hub
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USR }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish and verify multi-platform manifests
+        shell: bash
+        run: |
+          gh release view "$VERSION" --json isDraft --jq '.isDraft' | grep -Fx true
+          amd64=$(cat digests/amd64.txt)
+          arm64=$(cat digests/arm64.txt)
+          [[ "$amd64" =~ ^sha256:[a-f0-9]{64}$ && "$arm64" =~ ^sha256:[a-f0-9]{64}$ ]]
+          images=("ghcr.io/${GITHUB_REPOSITORY,,}" "$DOCKERHUB_IMAGE")
+          for image in "${images[@]}"; do
+            docker buildx imagetools create --tag "$image:$VERSION" "$image@$amd64" "$image@$arm64"
+            docker buildx imagetools inspect "$image:$VERSION" --raw | jq -e '
+              [.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"]'
+            digest=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r '.digest')
+            printf '%s@%s\n' "$image" "$digest" >> container-digests.txt
+          done
+          gh release upload "$VERSION" container-digests.txt --clobber
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            while IFS= read -r ref; do
+              image=${ref%@*}
+              docker buildx imagetools create --tag "$image:latest" "$ref"
+            done < container-digests.txt
+            gh release edit "$VERSION" --draft=false --latest
+          else
+            gh release edit "$VERSION" --draft=false --prerelease --latest=false
+          fi
+          {
+            echo "### Divoom Times Frame Sync $VERSION"
+            echo "Published linux/amd64 and linux/arm64 to both registries."
+            echo '```'
+            cat container-digests.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

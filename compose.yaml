@@ -1,0 +1,14 @@
+services:
+  timesframesync:
+    image: ${TFS_IMAGE:-impishmd/divoom-times-frame-sync:latest}
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 75s
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+      SOURCES_FILE: /app/sources.toml
+    volumes:
+      - ./data:/app/data
+      - ./sources.toml:/app/sources.toml:ro
+    command: ["run"]

@@ -1,0 +1,235 @@
+# Протоколы получения фото и видео
+
+Состояние проверено 26–27 сентября 2026 года. Все перечисленные запросы к облачным сервисам — чтение, включая операции, технически использующие POST. Отправка, удаление и изменение облачных фотографий не выполняются.
+
+Протокол Divoom описан отдельно в [frame-api.md](frame-api.md). Расширение источников не добавляет новых методов рамки.
+
+## Immich
+
+Используется API за общей ссылкой `/share/<key>`, ключ передаётся как query-параметр `key`. Проверено с Immich 3.2.2.
+
+| Запрос | Для чего используется |
+| --- | --- |
+| `POST /api/shared-links/login` | JSON `{"password":"…"}`; получить cookie доступа к защищённой общей ссылке |
+| `GET /api/shared-links/me` | Получить доступ и метаданные ссылки без пароля |
+| `GET /api/timeline/buckets` | Все временные группы альбома: `albumId`, `withStacked=false`, `order=asc` |
+| `GET /api/timeline/bucket` | Содержимое каждой группы; дополнительно `timeBucket`; ожидаются колоночные массивы `id` и `isImage` |
+| `GET /api/assets/<id>` | Проверить тип `IMAGE`/`VIDEO` и состояние удаления, получить `updatedAt` и исходное имя |
+| `GET /api/assets/<id>/thumbnail?size=preview` | Скачать превью изображения; преобразование под 800×1280 выполняется локально |
+| `GET /api/assets/<id>/video/playback` | Скачать видео для штатного альбома рамки; ключ и cookie те же |
+
+Проверяются размер каждой группы, уникальность ID и совпадение общего количества с `assetCount`. Тип и ревизия читаются для каждого элемента, включая видео. Неизвестный тип или удалённый элемент прерывает цикл. Cookie обновляется перед каждым чтением альбома; пароль и ключ не попадают в сообщения ошибок. Документация сервиса: [Immich API](https://api.immich.app/).
+
+Видео скачивается только при необходимости загрузки на рамку. `/video/playback` возвращает перекодированную версию Immich, если она есть, иначе исходный файл. Проверяется `Content-Type: video/*`, непустой ответ и успешное завершение передачи. Чтение выполняется по 1 МиБ в промежуточный файл; при обрыве он не считается готовым. Этот маршрут использует право просмотра `AssetView`, а не право скачивания оригинала; см. [реализацию Immich](https://github.com/immich-app/immich/blob/main/server/src/services/asset-media.service.ts).
+
+Локальный FFmpeg преобразует видео в H.264/AAC, учитывает поворот и `IMAGE_FIT`, создаёт файл 800×1280 без обрезания длительности. Из первого кадра делается обложка WebP. Облачный оригинал остаётся неизменным; параметры импорта описаны в [API рамки](frame-api.md#3-photolocaladdtoalbum).
+
+## Google Photos
+
+Поддерживаются публичные ссылки `https://photos.app.goo.gl/...` и полные `https://photos.google.com/share/...`. Вход в Google и OAuth не нужны. Это недокументированный протокол публичного просмотрщика. Он может измениться независимо от официального API.
+
+Официальный Photos Library API больше не даёт прежнего доступа к общим альбомам: Google прекратил соответствующие операции 31 марта 2025 года. См. [объявление Google](https://developers.google.com/photos/support/updates).
+
+### Страница альбома
+
+`GET <общая ссылка>` с переходом по перенаправлению на `photos.google.com`. Из `AF_initDataCallback` извлекается JSON, без выполнения JavaScript:
+
+- `data[1]` — первая страница элементов;
+- `data[2]` — токен следующей страницы, пустой в конце;
+- `data[3][0]` — стабильный ID альбома;
+- `data[3][1]` — название;
+- `data[3][19]` — ключ доступа, хранится только в памяти;
+- `data[3][21]` — общее количество элементов, включая видео.
+
+Переход к странице входа/согласия, отсутствие структуры альбома или некорректные данные дают ошибку, не пустой альбом.
+
+### Следующие страницы
+
+```http
+POST https://photos.google.com/_/PhotosUi/data/batchexecute?rpcids=snAcKc
+Content-Type: application/x-www-form-urlencoded
+```
+
+Поле `f.req` содержит сериализованный JSON:
+
+```json
+[[["snAcKc", "[\"album-id\",\"page-token\",null,\"share-key\"]", null, "generic"]]]
+```
+
+Ответ содержит префикс против XSSI, иногда строки длины и JSON-блоки. Разбирается только успешная запись `wrb.fr` с RPC `snAcKc`; её строковый payload снова декодируется как JSON. Пагинация идёт до пустого токена. Повтор токена, дубликаты ID и несовпадение количества с общим числом прерывают обновление.
+
+### Фотографии
+
+ID элемента — `item[0]`, метаданные изображения — `item[1]`: CDN URL, ширина, высота. Ревизия строится из временных полей `item[2]`, `item[5]` и размеров. Временные CDN URL не входят в ключ кэша. Для получения JPEG к URL добавляется `=w2048-h2048`; затем выполняется GET с проверкой `Content-Type: image/*` и декодирования.
+
+Ключ `76647426` в метаданных `item[9]` означает видео: оно пропускается. Это определение по внутреннему формату страницы, не гарантия официального API. Независимое первичное описание формата в коде автора: [google-photos-album-image-url-fetch](https://github.com/vikas5914/google-photos-album-image-url-fetch). Код этого проекта не подключается как зависимость и не исполняется.
+
+## iCloud Photos: новый формат общих альбомов
+
+Поддерживаются ссылки `https://photos.icloud.com/shared/album/<key>`. Это новый публичный просмотрщик на CloudKit. Старые ссылки вида `icloud.com/sharedalbum/#...` и временные ссылки `icloud.com/photos/#...` пока не реализованы; конфигурация явно отклоняет их.
+
+Протокол получен из сетевой логики публичного клиента Apple `photos3/2634BuildBeta18` . Первичный источник: [официальный клиент Apple](https://photos.icloud.com/applications/photos3/2634BuildBeta18/en-us/main.js). Клиентский код не включён в проект и не исполняется синхронизатором.
+
+### Разрешение ссылки
+
+```http
+POST https://ckdatabasews.icloud.com/database/1/com.apple.photos.cloud/production/public/records/resolve
+Content-Type: text/plain
+```
+
+Query: `remapEnums=true`, `getCurrentSyncToken=true`, `sharing_url_key=<key>`.
+
+```json
+{"shortGUIDs":[{"value":"<key>"}]}
+```
+
+Из единственного элемента `results` читаются `zoneID`, `databaseScope=SHARED`, название `share.fields["cloudkit.title"].value` и `anonymousPublicAccess`:
+
+- `databasePartition` — региональный сервер, например `https://p111-ckdatabasews.icloud.com:443`;
+- `token` — временный токен анонимного чтения;
+- сервер также сообщает TTL; при каждом цикле ссылка разрешается заново.
+
+Токен передаётся дальше как query-параметр `publicAccessAuthToken`, сохраняется только в памяти и не печатается. Приватный/отозванный альбом без анонимного разрешения даёт ошибку.
+
+### Подсчёт и страницы
+
+Все следующие запросы:
+
+```http
+POST <databasePartition>/database/1/com.apple.photos.cloud/production/shared/records/query
+Content-Type: text/plain
+```
+
+Параметры URL сохраняются и дополняются анонимным токеном. Тело содержит `zoneID`, `resultsLimit` и `query`.
+
+Для количества:
+
+```json
+{"query":{"recordType":"HyperionIndexCountLookup","filterBy":[{"fieldName":"indexCountID","comparator":"IN","fieldValue":{"value":["CPLAssetByAssetDateWithoutHiddenOrDeleted"],"type":"STRING_LIST"}}]},"zoneID":{"zoneName":"…","ownerRecordName":"…"},"resultsLimit":200}
+```
+
+Ожидается одна запись `IndexCountResult` с целочисленным `fields.itemCount.value`.
+
+Для элементов:
+
+```json
+{"query":{"recordType":"CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted","filterBy":[{"fieldName":"direction","comparator":"EQUALS","fieldValue":{"value":"ASCENDING","type":"STRING"}},{"fieldName":"startRank","comparator":"EQUALS","fieldValue":{"value":0,"type":"INT64"}}]},"zoneID":{"zoneName":"…","ownerRecordName":"…"},"resultsLimit":200}
+```
+
+Ответ содержит записи `CPLAsset` и `CPLMaster`. `startRank` следующего запроса равен числу уже полученных **CPLAsset**, а не суммарному количеству записей. `CPLAsset.fields.masterRef.value.recordName` связывает фото с оригиналом. Мастера собираются по `recordName`, фото не должны дублироваться. После получения всего списка количество и `syncToken` проверяются повторным запросом; изменение снимка останавливает цикл.
+
+### Изображения и видео
+
+Используются готовые JPEG-ресурсы `resJPEGFullRes` или `resJPEGMedRes`: сначала из `CPLAsset` (отрисованные правки), затем из `CPLMaster`. Из ресурса читаются `fileChecksum` и `downloadURL`. Подстановка `${f}` заменяется на `photo.jpg`, затем выполняется GET к `*.icloud-content.com`. JPEG-версии позволяют показывать HEIC без дополнительного декодера. Ориентация из EXIF применяется при подготовке фото.
+
+Ревизия — checksum выбранного изображения и `recordModificationDate` актива; обновление подписи CDN URL не вызывает повторную загрузку. Видео определяются по `itemType` (`public.mpeg-4`, `com.apple.quicktime-movie` и др.) и пропускаются; Live Photo передаётся как неподвижное изображение. Неизвестный тип медиа или отсутствие JPEG даёт ошибку всего источника, сохраняя предыдущий альбом.
+
+## Яндекс Диск: публичные фотоальбомы
+
+Поддерживаются ссылки `https://disk.yandex.ru/a/<key>` (также домен `.com`). Это именно фотоальбомы; публичные папки `/d/` имеют другой протокол и пока не поддерживаются. Официальный REST API публичных ресурсов не раскрывает содержимое этих альбомов. Используется протокол публичной галереи, проверенный по [клиенту Яндекса](https://yastatic.net/s3/psf/disk-public/_/public.764d985428246b5e.js).
+
+### Открытие альбома
+
+`GET <общая ссылка>` с браузерным `User-Agent`. Из HTML извлекается JSON скрипта `store-prefetch`, без выполнения JavaScript. По `rootResourceId` выбирается корневой элемент `resources`: ожидается `type=album`. Его `id`, `name`, `modified` задают идентичность, название и маркер изменения альбома; `path`/`hash` нужны для последующих запросов. Из `environment.sk` читается временный токен публичной сессии. Cookie сохраняются только в памяти.
+
+Отсутствие JSON, CAPTCHA, блокировка или ошибка доступа прерывают чтение. Решение CAPTCHA и вход в аккаунт не выполняются.
+
+### Перечисление всех фотографий
+
+```http
+POST https://disk.yandex.ru/public/api/fetch-album-list
+Content-Type: text/plain
+X-Requested-With: XMLHttpRequest
+X-Retpath-Y: <общая ссылка>
+```
+
+Тело — JSON, закодированный как `encodeURIComponent`:
+
+```json
+{"hash":"<album-path>","sk":"<session-token>","lastItemId":null}
+```
+
+На следующих страницах `lastItemId` равен `albumItemId` последнего элемента предыдущей страницы. Ответ содержит массив `resources` и булев `completed`. Читаются все страницы до `completed=true`, даже если HTML уже содержит фотографии. Повтор курсора или ID, пустая незавершённая страница и повреждённые записи считаются ошибкой.
+
+После перечисления повторяется GET страницы: `id` и `modified` должны совпасть. Изменение состава альбома во время чтения сохраняет предыдущее состояние синхронизации до следующего цикла.
+
+### Изображения
+
+У записи используются `id`, `name`, `modified` и `meta`. `meta.mediatype=image` означает фото, `video` пропускается. Неизвестный тип или отметка о заражённом файле прерывают источник. GET выполняется по подписанному `meta.xxxlPreview` (либо `meta.original`); принимается только HTTPS-ресурс CDN Яндекса с `Content-Type: image/*`.
+
+Ревизия состоит из `modified`, `meta.size`, `meta.file_id` и `meta.mimetype`; обновление временной подписи URL не вызывает повторного скачивания.
+
+## OneDrive: публичные фотоальбомы личного аккаунта
+
+Поддерживаются ссылки `https://1drv.ms/a/...`, в том числе современный формат `/a/c/<cid>/<key>`. Реализация проверена на личном OneDrive, перенесённом на `my.microsoftpersonalcontent.com`. Рабочие/учебные аккаунты, SharePoint и общие папки не поддерживаются. Если старый альбом возвращает другой формат API, источник выдаст ошибку вместо неполного списка.
+
+Протокол установлен по сетевым запросам официального публичного просмотрщика OneDrive в отдельном браузере без входа в Microsoft и затем воспроизведён обычными HTTP-запросами. Playwright использовался только при исследовании; синхронизатор не запускает браузер и не зависит от него. Анонимный протокол `badger` не является документированным контрактом Microsoft Graph.
+
+### Анонимный токен
+
+```http
+POST https://api-badgerp.svc.ms/v1.0/token
+Content-Type: application/json
+```
+
+```json
+{"appId":"073204aa-c1e0-4e66-a200-e5815a0aa93d"}
+```
+
+`appId` — публичный идентификатор приложения просмотрщика, не секрет пользователя. Ответ содержит `authScheme=badger`, `token` и `expiryTimeUtc`. Новый токен запрашивается в начале каждого цикла; он хранится только в памяти. Cookie пользовательского браузера, Microsoft-аккаунт, пароль и зарегистрированное OAuth-приложение не нужны.
+
+### Разрешение общей ссылки
+
+Общая ссылка целиком кодируется UTF-8 → Base64URL без завершающих `=`, с префиксом `u!`. Формат такого идентификатора описан в [документации Microsoft](https://learn.microsoft.com/en-us/graph/api/shares-get?view=graph-rest-1.0); используемый здесь анонимный обмен отличается от авторизации Graph.
+
+```http
+POST https://my.microsoftpersonalcontent.com/_api/v2.0/shares/<u!encoded-url>/driveitem?$select=id,parentReference
+Authorization: badger <token>
+Prefer: autoredeem
+```
+
+Тело пустое. Запрос разрешает ссылку для текущей анонимной сессии; фотографии и настройки общего доступа не редактируются. Из ответа читаются ID альбома и `parentReference.driveId`. ID после миграции нельзя вычислять из CID короткой ссылки: нужно использовать полученное значение.
+
+`Authorization` и `Prefer` передаются только API на точном хосте `my.microsoftpersonalcontent.com`. Перенаправления этих запросов не выполняются. Ссылка и токен не попадают в ошибки или манифесты.
+
+### Метаданные и полный список
+
+```http
+GET https://my.microsoftpersonalcontent.com/_api/v2.1/drives/<drive-id>/albums/<album-id>
+Authorization: badger <token>
+Prefer: autoredeem
+```
+
+Ожидаются `id`, `name`, `eTag`, `lastModifiedDateTime`, `mediaAlbum.albumItemCount` и `folder.childCount`. Два счётчика должны совпадать. Отсутствие `mediaAlbum` означает неподдерживаемый объект, а не пустой альбом.
+
+```http
+GET https://my.microsoftpersonalcontent.com/_api/v2.1/drives/<drive-id>/albums/<album-id>/children?top=200
+Authorization: badger <token>
+Prefer: autoredeem
+```
+
+Читается массив `value`. Фильтр `photo ne null`, применяемый просмотрщиком, намеренно не задаётся: для проверки полноты нужны также видео. Если ответ содержит `@odata.nextLink`, запрос повторяется по этому URL без добавления параметров первой страницы. Разрешены только тот же API-хост и путь `/children` этого альбома. Пустая незавершённая страница, повтор URL или ID, неизвестное медиа и удалённые/перенаправленные записи прерывают цикл.
+
+Число уникальных элементов, включая пропущенные видео, должно совпасть со счётчиком. В конце повторяется GET метаданных: ID, количество, `eTag` и время изменения должны остаться прежними.
+
+Обычная структура `value`/`@odata.nextLink` описана в [документации Microsoft о перечислении содержимого](https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0); маршрут `/albums` и анонимная авторизация взяты из действующего публичного клиента.
+
+### Фотографии и превью
+
+Запись с `video` пропускается. Для фото ожидаются `image` и `file.mimeType=image/*`; используются `id`, `name`, `cTag`, `lastModifiedDateTime`, `size`. Последние три поля определяют ревизию кэша. Временная ссылка скачивания не влияет на ревизию.
+
+Только для новых или изменённых фото:
+
+```http
+GET https://my.microsoftpersonalcontent.com/_api/v2.1/drives/<drive-id>/items/<photo-id>/thumbnails?select=c2048x2048
+Authorization: badger <token>
+Prefer: autoredeem
+```
+
+Из `value[0].c2048x2048.url` берётся подписанный URL изображения. Следующий GET к CDN выполняется **без заголовка Authorization**. Проверяются HTTPS-хост Microsoft, `Content-Type: image/*` и локальное декодирование. Запрошенный размер сохраняет пропорции и помещает фотографию в 2048×2048.. Формат пользовательского размера описан в [документации thumbnails](https://learn.microsoft.com/en-us/graph/api/driveitem-list-thumbnails?view=graph-rest-1.0).
+
+Истёкший токен, недоступное превью или HTTP-ошибка отменяют обновление соответствующего целевого альбома в этом цикле. Следующий цикл получает новый анонимный токен и повторяет чтение.
+
+## Общие ограничения
+
+Публичные просмотрщики Google, Apple, Яндекса и Microsoft не являются стабильным API для сторонних приложений. Изменение схемы, HTTP 403/429, страница входа, сетевая ошибка или истёкший URL прерывают текущую группу назначения; очередной цикл повторяет попытку. Рабочий синхронизатор не выполняет вход в аккаунты, обход CAPTCHA или браузерную автоматизацию. Синхронизируются изображения для экрана, не оригиналы для резервного копирования.

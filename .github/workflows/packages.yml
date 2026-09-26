@@ -1,0 +1,57 @@
+name: Packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - name: Validate release tag and notes
+        if: inputs.release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: python scripts/check-release.py
+      - run: python -m pip install build
+      - name: Build wheel, sdist, and complete source archive
+        run: |
+          python -m build
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          name="divoom-times-frame-sync-v$version-source"
+          git archive --format=tar.gz --prefix="$name/" --output="dist/$name.tar.gz" HEAD
+          (cd dist && sha256sum ./*.whl ./*.tar.gz > checksums.txt && sha256sum -c checksums.txt)
+      - name: Verify installation from each distribution
+        shell: bash
+        run: |
+          for package in dist/*.whl dist/*.tar.gz; do
+            python -m venv "$RUNNER_TEMP/package-venv"
+            "$RUNNER_TEMP/package-venv/bin/pip" install "$package"
+            "$RUNNER_TEMP/package-venv/bin/pip" check
+            (cd "$RUNNER_TEMP" && "$RUNNER_TEMP/package-venv/bin/tfs" --help)
+            rm -rf "$RUNNER_TEMP/package-venv"
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-packages
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

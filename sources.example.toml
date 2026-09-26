@@ -1,0 +1,42 @@
+# Each section is one public source album, accessible through its sharing link.
+# IDs must be unique and stable. Repeat any provider for additional albums.
+# Same target_album = union; different target_album = separate frame albums.
+# Create ordinary destination albums in the Divoom app first.
+
+[[sources]]
+id = "google-main"
+provider = "google_photos"
+url_env = "GOOGLE_PHOTOS_SHARE_URL"
+target_album = "Photos"
+
+[[sources]]
+id = "icloud-main"
+provider = "icloud"
+url_env = "ICLOUD_SHARE_URL"
+target_album = "Photos"
+
+[[sources]]
+id = "immich-main"
+provider = "immich"
+url_env = "IMMICH_SHARE_URL"
+password_env = "IMMICH_SHARE_PASSWORD"
+target_album = "Photos"
+
+[[sources]]
+id = "onedrive-main"
+provider = "onedrive"
+url_env = "ONEDRIVE_SHARE_URL"
+target_album = "Photos"
+
+[[sources]]
+id = "yandex-main"
+provider = "yandex_disk"
+url_env = "YANDEX_DISK_SHARE_URL"
+target_album = "Photos"
+
+# Additional album (uncomment and fill in; no OAuth needed):
+# [[sources]]
+# id = "google-holidays"
+# provider = "google_photos"
+# url = "https://photos.app.goo.gl/your-other-album"
+# target_album = "Holidays"
