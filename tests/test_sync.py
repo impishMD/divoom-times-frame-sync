@@ -253,7 +253,7 @@ class FakeFrame:
     def info(self):
         return {"clock": {"DeviceId": 999, "ClockId": 456}}
 
-    def import_photo(self, album_id, filename, content, user_id):
+    def import_photo(self, album_id, filename, content, user_id, *, verify=True):
         if self.fail_upload:
             raise SyncError("upload failed")
         self.uploads += 1
@@ -347,12 +347,11 @@ def test_empty_album_and_reused_id_do_not_remove_foreign_photo(prepared):
     assert sync.frame.played == [123]
 
 
-def test_corrupted_existing_bytes_fail_before_pruning(prepared):
+def test_silent_corruption_is_left_for_explicit_repair(prepared):
     sync = prepared
     sync.sync_album()
     sync.frame.files[sync.frame.db.photos[10]["path"]] = b"corrupt"
-    with pytest.raises(SyncError, match="different bytes"):
-        sync.sync_album()
+    assert sync.sync_album()["skipped"] == 2
     assert sync.frame.db.members[123] == {1, 10, 11}
 
 

@@ -145,7 +145,8 @@ class Cache:
         paths = self.video_paths(photo)
         movie, cover, original = paths[".mp4"], paths[".webp"], paths[".source"]
         downloaded = False
-        if not movie.is_file():
+        prepared = movie.is_file()
+        if not prepared:
             require_ffmpeg()
             movie.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             if not original.is_file():
@@ -171,13 +172,15 @@ class Cache:
             finally:
                 partial.unlink(missing_ok=True)
         digest = file_digest(movie)
-        if photo.get("device_sha256") and digest != photo["device_sha256"]:
+        if prepared and photo.get("device_sha256") and digest != photo["device_sha256"]:
             raise SyncError("Temporary video checksum mismatch")
+        if not prepared:
+            cover.unlink(missing_ok=True)
         if not cover.is_file():
             require_ffmpeg()
             atomic_write(cover, make_cover(movie))
         cover_digest = file_digest(cover)
-        if photo.get("preview_sha256") and cover_digest != photo["preview_sha256"]:
+        if prepared and photo.get("preview_sha256") and cover_digest != photo["preview_sha256"]:
             raise SyncError("Temporary video cover checksum mismatch")
         filename = "vi-" + digest[:24] + ".mp4"
         photo.update(device_filename=filename, device_sha256=digest, preview_sha256=cover_digest)

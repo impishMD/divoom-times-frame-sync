@@ -89,9 +89,11 @@ SYNC_INTERVAL=300
 Пример лога завершённого цикла:
 
 ```text
-Native album Photos (123456), mode=mirror: 2 photos and 1 videos verified, 0 downloaded, 0 uploaded, 1 removed, 0 missing items retained
+Native album Photos (123456), mode=mirror: 2 photos, 1 videos, 3 matched metadata, 0 content checked, 0 downloaded, 0 uploaded, 1 removed, 0 missing items retained; 1.2s
 ```
 
-`photos` и `videos verified` — число уникальных подготовленных фото и видео текущего объединения источников; `removed` — число записей, исключённых из целевого альбома; `missing items retained` — число отслеживаемых записей, оставленных режимом `append`, несмотря на их отсутствие в текущем наборе. Ручные фотографии в эти счётчики не входят.
+`photos` и `videos` — число уникальных подготовленных фото и видео текущего объединения источников; `removed` — число записей, исключённых из целевого альбома; `missing items retained` — число отслеживаемых записей, оставленных режимом `append`, несмотря на их отсутствие в текущем наборе. Ручные фотографии в эти счётчики не входят.
 
 Подробное описание команды удаления и её проверки: [frame-api.md](frame-api.md).
+
+`matched metadata` — элементы, использованные без чтения медиа; `content checked` — полные проверки содержимого, включая новые загрузки. При первом обновлении существующие файлы проверяются один раз. Полный аудит независимо от mirror/append выполняет [repair](repair.md).

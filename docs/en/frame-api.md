@@ -382,9 +382,19 @@ For photos, SHA-256 of the read bytes must match the saved WebP checksum or the 
 
 1. Read complete listings for every source feeding the destination and save manifests. An error here skips the destination before sending frame mutations; independent destinations may still update.
 2. Read the frame database, find the album by name, and request `Channel/GetConfig` and `Channel/GetClockInfo`.
-3. For each photo and video, look up its saved filename and verify SHA-256. Prepare temporary JPEG/WebP files for new or missing photos, or an MP4 with cover for videos. Call `Photo/LocalAddToAlbum` / `Photo/DevicePhotoToAlbum` as needed.
+3. For each photo and video, resolve its canonical or recovery filename. Reuse verification only when the scoped journal matches ID/path, kind, full content hash, and cover hash; otherwise read and compare SHA-256. Prepare temporary JPEG/WebP files for new or missing photos, or an MP4 with cover for videos. Call `Photo/LocalAddToAlbum` / `Photo/DevicePhotoToAlbum` as needed.
 4. After each verified item, save its journal record and delete the temporary JPEG or MP4/cover pair. Reread the database and check the destination album ID before removing missing records.
 5. In `mirror`, remove tracked missing images through `Photo/RemovePhotoFromAlbum`. In `append`, keep them and their journal entries.
 6. Verify current image membership and save the journal. If needed, activate the album by exiting custom control and selecting `ClockId`.
 
 `sync --dry-run` reads status rather than calculating planned removals. `snapshot` and `restore` are separate diagnostic/control commands. Unused experimental commands and firmware binary access are not needed during normal operation.
+
+## Repair operations
+
+`repair` uses the same GET and native Photo commands above. It fully reads current configured media and compares SHA-256; videos also require a matching cover and `pic_video_flag=1`. `repair --dry-run` performs these reads but sends no frame mutations. HTTP 404 and completed checksum mismatches are repairable; network errors and other HTTP failures are reported without treating them as corruption.
+
+For damaged media, import a separate recovery filename `r<24 hex of content SHA-256><2 hex generation>.webp` or `.mp4` through `Photo/LocalAddToAlbum`. The generation starts at `00`; WebP names are 32 bytes and MP4 names 31. `Inventory.find_media()` prefers the highest generation, including after state loss, and full hashes must still match before trust is recorded. Generation exhaustion is an error, never a filename overwrite.
+
+After one full replacement check, `Photo/DevicePhotoToAlbum` restores its links in all affected ordinary albums. Only then does `Photo/RemovePhotoFromAlbum` unlink the damaged records. The database is read after mutations. A durable pending record permits resuming interrupted transfers. The synchronizer never uses global deletion or edits SQLite; obsolete damaged files remain in All Photos. Repair never selects a clock. See [repair](repair.md).
+
+`import_photo()` / `import_video()` verify by default. The synchronizer passes `verify=False` to defer the single content check to reconciliation; import still waits for the database record and album link. This avoids reading a new file twice.

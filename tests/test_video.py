@@ -30,7 +30,7 @@ from test_sources import multi, cycle, google_client, google_data, google_item
 
 
 class VideoFrame(FakeFrame):
-    def import_video(self, album_id, filename, content, preview, user_id):
+    def import_video(self, album_id, filename, content, preview, user_id, *, verify=True):
         record = self.import_photo(album_id, filename, content.read_bytes(), user_id)
         self.db.video_ids.add(record["id"])
         self.files[str(Path(record["path"]).with_suffix(".webp"))] = preview.read_bytes()
@@ -244,8 +244,8 @@ def test_video_readback_failure_keeps_files_and_blocks_pruning(video_sync, damag
     sync.refresh()
     sync.sync_album()
     original = sync.frame.import_video
-    def corrupt(*args):
-        record = original(*args)
+    def corrupt(*args, **kwargs):
+        record = original(*args, **kwargs)
         if damage == "flag":
             sync.frame.db.video_ids.clear()
         else:

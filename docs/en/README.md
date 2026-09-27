@@ -167,9 +167,20 @@ Normal `sync` and `run` process media one item at a time. **The temporary local 
 
 Photos need temporary space for a prepared image. Video conversion needs room for the downloaded video, the converted MP4, and a cover. Completed uploads leave only small metadata files in `data/`: source IDs, revisions, checksums, and records of items managed on the frame.
 
-Unchanged items are not downloaded from the source again. Integrity checks still read files back from the frame over the LAN, so large videos can take time to verify. Interrupted uploads retain prepared files for a retry; obsolete temporary versions are cleaned up when the source list is refreshed successfully.
+Unchanged items are matched against source metadata, the frame database, and the saved verification journal. Normal cycles neither download their contents from the source nor read them back from the frame. New uploads are checked once; old or missing verification records require a one-time full check. Use `tfs repair` for an explicit integrity check and recovery. Interrupted uploads retain prepared files for a retry; obsolete temporary versions are cleaned up when the source list is refreshed successfully.
 
 **Keep `data/` between runs and container restarts.** Without it, matching files may be found again, but ownership of items already removed from the sources cannot be recovered. Reprocessing with different settings or codecs may also produce a separate copy. See [storage and recovery](/docs/en/storage.md).
+
+## Integrity checks and repair
+
+Stop `run` before repair; both commands use the same `DATA_DIR` lock.
+
+```sh
+.venv/bin/tfs repair --dry-run  # Read full contents and report problems
+.venv/bin/tfs repair            # Check and restore damaged or missing media
+```
+
+Repair checks photos, MP4 files, video covers, media types, and album membership across all configured sources. Healthy files are not reuploaded. It does not prune items removed from source albums or switch playback. A dry run makes no frame changes and exits with status 1 when problems are found. Full checks read media over the LAN and can take time, especially for video. See [repair and recovery](/docs/en/repair.md).
 
 ## Settings
 
@@ -202,6 +213,8 @@ Restart the service after changing configuration. For Compose, use `docker compo
 | --- | --- |
 | `.venv/bin/tfs status` | Read source and frame album status |
 | `.venv/bin/tfs sync --dry-run` | Read status without changing the frame; does not list planned removals |
+| `.venv/bin/tfs repair --dry-run` | Check full media contents; report damage without changing the frame |
+| `.venv/bin/tfs repair` | Check and recover damaged or missing media |
 | `.venv/bin/tfs snapshot` | Save the screen to `data/snapshot.webp` |
 | `.venv/bin/tfs restore` | Select the previously active frame screen |
 | `.venv/bin/tfs cache` | Prepare all media in advance and keep it locally until sync |

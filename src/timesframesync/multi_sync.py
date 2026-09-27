@@ -43,14 +43,14 @@ class MultiSynchronizer:
                 result = self.caches[spec.id].sync(self.clients[spec.id], album, download=download)
                 self.ready.add(spec.id)
                 results[spec.id] = result
-                log.info("Source %s (%s), album %s: %d photos, %d videos, %d downloaded, %d videos skipped",
+                log.info("Source %s (%s), album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped",
                          spec.id, spec.provider, album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"])
             except (SyncError, OSError) as error:
                 self.errors[spec.id] = str(error)
                 log.error("Source %s failed: %s", spec.id, error)
         return {"sources": results, "errors": dict(self.errors)}
 
-    def target_sync(self, name: str, specs: list) -> Synchronizer:
+    def target_sync(self, name: str, specs: list, *, migrate: bool = True) -> Synchronizer:
         key = hashlib.sha256(name.encode()).hexdigest()[:24]
         target = Synchronizer(replace(self.config, share_url="", frame_album=name,
                                       data_dir=self.config.data_dir / "targets" / key))
@@ -66,7 +66,7 @@ class MultiSynchronizer:
         atomic_write(target.cache.path, json.dumps(manifest, indent=2).encode())
         # One-time import of ownership from the original single-Immich layout.
         # Verify source, physical device, target album and host before reusing it.
-        if not (target.config.data_dir / "device-state.json").exists():
+        if migrate and not (target.config.data_dir / "device-state.json").exists():
             legacy = self.root_state.device_state()
             scope = legacy.get("native_scope", {})
             source_ids = {m["album_id"] for _, m in manifests}
@@ -107,8 +107,28 @@ class MultiSynchronizer:
         # A cached snapshot alone cannot authorize another reconciliation.
         self.ready = None
         return {"albums": results, **{key: sum(r[key] for r in results) for key in
-                                      ("items", "photos", "videos", "downloaded", "uploaded", "removed", "retained")},
+                                      ("items", "photos", "videos", "downloaded", "uploaded", "removed", "retained", "checked", "skipped")},
                 "errors": errors}
+
+    def repair_album(self, *, dry_run: bool = False) -> dict:
+        if self.ready is None:
+            raise SyncError("Refresh all sources before repairing the frame")
+        results, errors, checked = [], dict(self.errors), {}
+        try:
+            for name, specs in self.groups.items():
+                if any(s.id not in self.ready for s in specs):
+                    log.warning("Repair target %s skipped: incomplete source listing", name)
+                    continue
+                try:
+                    result = self.target_sync(name, specs, migrate=not dry_run).repair_album(dry_run=dry_run, checked=checked)
+                    results.append(result)
+                    errors.update({f"{name}:{key}": value for key, value in result["errors"].items()})
+                except (SyncError, OSError) as error:
+                    errors["target:" + name] = str(error)
+        finally:
+            self.ready = None
+        return {"albums": results, "dry_run": dry_run, "errors": errors,
+                **{key: sum(r[key] for r in results) for key in ("items", "checked", "healthy", "problems", "repaired", "downloaded")}}
 
     def status(self) -> dict:
         inventory = self.frame.inventory()

@@ -42,6 +42,8 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("cache", help="Prepare all photos and supported videos without changing the frame")
     sync = commands.add_parser("sync", help="Sync all configured albums and start autonomous playback")
     sync.add_argument("--dry-run", action="store_true", help="Read status without writing to the frame")
+    repair = commands.add_parser("repair", help="Check full file contents and recover damaged or missing media")
+    repair.add_argument("--dry-run", action="store_true", help="Check contents and report problems without changing the frame")
     daemon = commands.add_parser("run", help="Periodically update all albums; playback is autonomous")
     for command in (sync, daemon):
         command.add_argument("--sync-mode", choices=SYNC_MODES,
@@ -57,7 +59,7 @@ def main() -> int:
     try:
         config = Config.load(args.env_file, sync_mode=getattr(args, "sync_mode", None), sources_file=args.sources_file)
         sync = MultiSynchronizer(config) if config.sources_file else Synchronizer(config)
-        if args.command == "status" or getattr(args, "dry_run", False):
+        if args.command == "status" or (args.command == "sync" and args.dry_run):
             if isinstance(sync, MultiSynchronizer):
                 result = sync.status()
                 print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -81,6 +83,12 @@ def main() -> int:
                     if args.command == "sync":
                         result = sync.sync_album()
                     if result.get("errors"):
+                        return 1
+                elif args.command == "repair":
+                    sync.refresh()
+                    result = sync.repair_album(dry_run=args.dry_run)
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                    if result["errors"] or (args.dry_run and result["problems"]):
                         return 1
                 elif args.command == "snapshot":
                     path = sync.config.data_dir / "snapshot.webp"

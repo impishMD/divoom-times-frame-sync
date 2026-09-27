@@ -65,10 +65,10 @@ def test_missing_device_file_record_is_redownloaded(tmp_path):
 def test_failed_upload_retains_only_pending_file_and_restart_resumes(tmp_path):
     sync = setup_sync(tmp_path)
     original_upload = sync.frame.import_photo
-    def upload(*args):
+    def upload(*args, **kwargs):
         if sync.frame.uploads == 1:
             raise SyncError("upload interrupted")
-        return original_upload(*args)
+        return original_upload(*args, **kwargs)
     sync.frame.import_photo = upload
     sync.refresh()
     with pytest.raises(SyncError, match="interrupted"):

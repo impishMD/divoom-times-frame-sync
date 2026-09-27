@@ -127,6 +127,28 @@ class Inventory:
             raise SyncError(f"Multiple frame photos use {filename}; resolve duplicates before syncing")
         return matches[0] if matches else None
 
+    def find_media(self, filename: str) -> dict | None:
+        """Prefer a recovery generation, retaining canonical content identity."""
+        import re
+        digest = filename[3:27]
+        suffix = PurePosixPath(filename).suffix
+        pattern = re.compile(r"r" + re.escape(digest) + r"([0-9a-f]{2})" + re.escape(suffix))
+        names = [(int(match[1], 16), PurePosixPath(photo["path"]).name)
+                 for photo in self.photos.values()
+                 if (match := pattern.fullmatch(PurePosixPath(photo["path"]).name))]
+        return self.find_file(max(names)[1] if names else filename)
+
+    def recovery_name(self, filename: str) -> str:
+        # 32 bytes for WebP, 31 for MP4: respect the firmware command buffer.
+        existing = {PurePosixPath(p["path"]).name for p in self.photos.values()}
+        generations = [generation for generation in range(256)
+                       if f"r{filename[3:27]}{generation:02x}{PurePosixPath(filename).suffix}" in existing]
+        generation = max(generations, default=-1) + 1
+        if generation > 255:
+            raise SyncError("Recovery filename generations exhausted")
+        return f"r{filename[3:27]}{generation:02x}{PurePosixPath(filename).suffix}"
+
+
 
 def read_inventory(content: bytes) -> Inventory:
     try:
@@ -255,11 +277,11 @@ class Frame:
                             ParentClockId=0, ParentItemId=0, PhotoList=sorted(pic_ids))
         self.wait_members(album_id, absent=pic_ids)
 
-    def import_photo(self, album_id: int, filename: str, content: bytes, user_id: int = 0) -> dict:
+    def import_photo(self, album_id: int, filename: str, content: bytes, user_id: int = 0, *, verify: bool = True) -> dict:
         metadata = self.import_metadata(album_id, filename, user_id)
         body, mime = multipart(metadata, filename, content)
         self._post("/upload", body, mime)
-        return self.wait_import(album_id, filename, hashlib.sha256(content).hexdigest())
+        return self.wait_import(album_id, filename, hashlib.sha256(content).hexdigest(), verify=verify)
 
     def import_metadata(self, album_id: int, filename: str, user_id: int, preview: str = "") -> dict:
         now = int(time.time() * 1000)
@@ -271,7 +293,7 @@ class Frame:
             FileName=filename, PreviewFileName=preview, PhotoTitle="",
         )
 
-    def import_video(self, album_id: int, filename: str, content: Path, preview: Path, user_id: int = 0) -> dict:
+    def import_video(self, album_id: int, filename: str, content: Path, preview: Path, user_id: int = 0, *, verify: bool = True) -> dict:
         from .video import file_digest
         if not filename.endswith(".mp4"):
             raise SyncError("Native videos must use MP4 filenames")
@@ -279,25 +301,26 @@ class Frame:
         metadata = self.import_metadata(album_id, filename, user_id, preview_name)
         with FileMultipart(metadata, [(filename, content), (preview_name, preview)]) as body:
             self._post("/upload", body, body.content_type, timeout=(5, 300))
-        return self.wait_import(album_id, filename, file_digest(content), preview_digest=file_digest(preview))
+        return self.wait_import(album_id, filename, file_digest(content), preview_digest=file_digest(preview), verify=verify)
 
-    def wait_import(self, album_id: int, filename: str, digest: str, *, preview_digest: str | None = None) -> dict:
+    def wait_import(self, album_id: int, filename: str, digest: str, *, preview_digest: str | None = None, verify: bool = True) -> dict:
         deadline = time.monotonic() + 15
         while True:
             inventory = self.inventory()
             photo = inventory.find_file(filename)
             if photo:
-                if preview_digest is None:
-                    content = self.fetch_file(photo["path"])
-                    actual = hashlib.sha256(content).hexdigest() if content is not None else None
-                else:
-                    actual = self.file_digest(photo["path"])
-                if actual != digest:
-                    raise SyncError("Native media read-back verification failed")
-                if preview_digest is not None:
-                    cover = str(PurePosixPath(photo["path"]).with_suffix(".webp"))
-                    if photo["id"] not in inventory.video_ids or self.file_digest(cover) != preview_digest:
-                        raise SyncError("Native video flag or cover verification failed")
+                if verify:
+                    if preview_digest is None:
+                        content = self.fetch_file(photo["path"])
+                        actual = hashlib.sha256(content).hexdigest() if content is not None else None
+                    else:
+                        actual = self.file_digest(photo["path"])
+                    if actual != digest:
+                        raise SyncError("Native media read-back verification failed")
+                    if preview_digest is not None:
+                        cover = str(PurePosixPath(photo["path"]).with_suffix(".webp"))
+                        if photo["id"] not in inventory.video_ids or self.file_digest(cover) != preview_digest:
+                            raise SyncError("Native video flag or cover verification failed")
                 if photo["id"] not in inventory.members.get(album_id, set()):
                     self.add_existing(album_id, photo["id"])
                 return photo

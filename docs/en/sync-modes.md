@@ -89,9 +89,11 @@ If the journal (`data/device-state.json` in the legacy layout or `data/targets/<
 Example log for a completed cycle:
 
 ```text
-Native album Photos (123456), mode=mirror: 2 photos and 1 videos verified, 0 downloaded, 0 uploaded, 1 removed, 0 missing items retained
+Native album Photos (123456), mode=mirror: 2 photos, 1 videos, 3 matched metadata, 0 content checked, 0 downloaded, 0 uploaded, 1 removed, 0 missing items retained; 1.2s
 ```
 
-`photos` and `videos verified` count unique prepared photos and videos in the current combined source set; `removed` counts records removed from the destination; `missing items retained` counts tracked records kept by `append` despite their absence from the current set. Manually added photos are not included in these counters.
+`photos` and `videos` count unique prepared photos and videos in the current combined source set; `removed` counts records removed from the destination; `missing items retained` counts tracked records kept by `append` despite their absence from the current set. Manually added photos are not included in these counters.
 
 For removal commands and verification, see [frame-api.md](frame-api.md).
+
+`matched metadata` counts items reused without media reads; `content checked` counts full integrity checks (including new uploads). The initial upgrade checks existing files once. Use [repair](repair.md) for a full audit independently of mirror/append.

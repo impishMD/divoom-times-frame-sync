@@ -6,9 +6,9 @@
 
 1. Read the complete listing of each source album; validate pagination and response completeness.
 2. Atomically update the source manifest. Keep existing checksums for unchanged IDs and revisions. Delete unused temporary versions for that source.
-3. Read the frame database for each destination album. Find known WebP and MP4 files by their SHA-256-derived names and verify their contents.
+3. Read the frame database for each destination album. Find known WebP and MP4 files by their SHA-256-derived names (including recovery generations). Match saved verification records against the physical device, native record ID, path, media type, full SHA-256, and video cover hash.
 4. Download previews only for missing or new photos and prepare temporary 800×1280 JPEGs. Convert them to WebP in memory and save checksums in the manifest. For videos, download the playback file, convert it to MP4, and create a WebP cover.
-5. Upload the WebP or the MP4 with its cover, or reuse an existing matching file. Verify its contents and membership in the destination album.
+5. Upload the WebP or the MP4 with its cover, or reuse an existing matching file. Read its contents once and verify membership in the destination album. Previously verified, unchanged records need no media readback.
 6. Atomically record ownership in `device-state.json`, then immediately delete the temporary JPEG or MP4/WebP pair. Continue with the next item.
 7. Once all current photos and videos have been verified, apply the `mirror`/`append` policy to missing items.
 
@@ -22,7 +22,7 @@ A normal run does not download the entire album in advance. Each process handles
 | `sources/<id>/photos/*.jpg` | Temporary images; deleted after a verified transfer |
 | `sources/<id>/videos/*` | Temporary input, MP4, and cover; see below |
 | `targets/<hash>/manifest.json` | Combined current contents of a destination album |
-| `targets/<hash>/device-state.json` | Ownership of frame records, device, album, and file paths |
+| `targets/<hash>/device-state.json` | Ownership, full verification fingerprints and timestamps, device/album identity, and any pending repair |
 | `device-state.json` | Previous screen for `restore`; also the journal for single-source Immich mode |
 | `manifest.json`, `photos/`, `videos/` | Manifest and temporary media for single-source Immich mode |
 | `.lock` | Prevents concurrent access by multiple processes |
@@ -30,7 +30,7 @@ A normal run does not download the entire album in advance. Each process handles
 
 Direct image URLs, CDN signatures, passwords, and tokens are not written to manifests. Album IDs and names are personal data; the entire `DATA_DIR` is excluded from the public repository.
 
-A normal subsequent cycle checks a fresh source listing and the files on the frame. A missing temporary JPEG or MP4 alone does not trigger another cloud download. SHA-256 verification reads the entire frame file over the LAN, even when it has not changed. Large videos and slow Wi-Fi can make this take noticeable time. Verification bytes are not saved to disk. Persistent storage is needed for metadata, not copies of the entire photo library.
+A normal subsequent cycle reads source listings and the frame database, with no media readback for unchanged verified items and no unnecessary journal rewrites. Missing native records trigger recovery from the source; missing album links are restored without reuploading. The frame database has no content hash or file size, so silent byte corruption with intact metadata requires an explicit [repair](repair.md). Full readback is performed for new uploads, untrusted entries, and repair checks; it is never saved as a second local media copy.
 
 ## Temporary video files
 
@@ -58,3 +58,9 @@ Keep manifests and journals between runs and back them up with the configuration
 In both cases, photos already missing from the sources are not removed automatically because the service can no longer establish ownership. Different processing settings or codecs may produce different bytes and a separate copy of a visually identical photo.
 
 When upgrading from a version with a permanent cache, existing JPEGs are used to compute checksums and deleted after verification on the frame. The `im-<24 hex>.webp` naming scheme is retained for compatibility and to prevent duplicate uploads.
+
+## Verification journal upgrade
+
+Version 0.7.0 adds `verified_files` to each destination's `device-state.json`. Entries contain native ID/path, media kind, full prepared-file SHA-256, video cover SHA-256, and `verified_at` (Unix seconds). The scope includes physical device ID, target album ID, and source album identity. Source IDs and revisions remain in manifests. Existing ownership records are retained; entries without verification metadata receive one full check on the next sync. No cloud download is needed if their saved fingerprints are present.
+
+The journal also records `pending_repair` before uploading a replacement or changing links. An interrupted repair must be resumed with `tfs repair`; ordinary sync refuses to prune that destination while its repair is pending. See [repair](repair.md) for recovery naming, retries, and missing-source behavior.
