@@ -6,10 +6,18 @@ on:
     paths-ignore:
       - 'docs/**'
       - '*.md'
+      - 'charts/**'
+      - 'scripts/check-chart*'
+      - '.github/workflows/helm-*.yml'
+      - '.github/chart-releaser.yaml'
   pull_request:
     paths-ignore:
       - 'docs/**'
       - '*.md'
+      - 'charts/**'
+      - 'scripts/check-chart*'
+      - '.github/workflows/helm-*.yml'
+      - '.github/chart-releaser.yaml'
   workflow_dispatch:
   workflow_call:
     inputs:

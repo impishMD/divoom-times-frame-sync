@@ -1,0 +1,9 @@
+fullnameOverride: tfs-test
+existingSecret: tfs-test
+config:
+  frame:
+    host: "127.0.0.1"
+  syncInterval: 10
+terminationGracePeriodSeconds: 15
+persistence:
+  size: 1Gi

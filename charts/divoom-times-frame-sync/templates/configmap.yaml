@@ -1,0 +1,21 @@
+{{- include "tfs.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tfs.fullname" . }}
+  labels:
+    {{- include "tfs.labels" . | nindent 4 }}
+data:
+  sources.toml: |
+    {{- range .Values.sources }}
+    [[sources]]
+    id = {{ .id | toJson }}
+    provider = {{ .provider | toJson }}
+    url_env = {{ .urlEnv | toJson }}
+    {{- with .passwordEnv }}
+    password_env = {{ . | toJson }}
+    {{- end }}
+    {{- with .targetAlbum }}
+    target_album = {{ . | toJson }}
+    {{- end }}
+    {{- end }}

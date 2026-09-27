@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tfs.fullname" . }}
+  labels:
+    {{- include "tfs.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "tfs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tfs.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- $checksum := include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- toYaml (mergeOverwrite (deepCopy .Values.podAnnotations) (dict "checksum/config" $checksum)) | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: sync
+          image: {{ include "tfs.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--log-level", {{ .Values.config.logLevel | quote }}, "run"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.existingSecret | quote }}
+          env:
+            - name: DATA_DIR
+              value: /app/data
+            - name: SOURCES_FILE
+              value: /app/config/sources.toml
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: DIVOOM_HOST
+              value: {{ .Values.config.frame.host | quote }}
+            - name: DIVOOM_PORT
+              value: {{ .Values.config.frame.port | quote }}
+            - name: DIVOOM_ALBUM
+              value: {{ .Values.config.frame.album | quote }}
+            - name: DIVOOM_USER_ID
+              value: {{ .Values.config.frame.userId | quote }}
+            - name: SYNC_INTERVAL
+              value: {{ .Values.config.syncInterval | quote }}
+            - name: SYNC_MODE
+              value: {{ .Values.config.syncMode | quote }}
+            - name: IMAGE_FIT
+              value: {{ .Values.config.imageFit | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "tfs.fullname" .) }}
+        - name: config
+          configMap:
+            name: {{ include "tfs.fullname" . }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,74 @@
+# One worker owns the sync journal. Multiple replicas are not supported.
+replicaCount: 1
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: docker.io/impishmd/divoom-times-frame-sync
+  # Empty uses v<Chart.appVersion>. Prefer an immutable version or digest.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Required: an existing Secret in the release namespace. Its keys become env vars.
+# Include DIVOOM_TOKEN and the URL/password variables referenced by sources below.
+existingSecret: ""
+
+config:
+  frame:
+    host: ""
+    port: 9000
+    album: Photos
+    userId: 0
+  syncInterval: 300
+  syncMode: mirror
+  imageFit: contain
+  logLevel: INFO
+
+# Public album links stay in the Secret, not in values or the ConfigMap.
+# Repeat any provider with a stable unique ID and its own URL env variable.
+sources:
+  - id: immich-main
+    provider: immich
+    urlEnv: IMMICH_SHARE_URL
+    # passwordEnv: IMMICH_SHARE_PASSWORD
+    # targetAlbum: Photos  # Omit to use config.frame.album.
+
+persistence:
+  # Use an existing PVC, or let the chart create one. Persistence is mandatory.
+  existingClaim: ""
+  size: 10Gi
+  # null: cluster default; "": explicitly no StorageClass; otherwise its name.
+  storageClass: null
+  accessModes: [ReadWriteOnce]
+  # Preserve the journal on Helm uninstall and Argo CD deletion/pruning.
+  retain: true
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+# Allow in-flight operations to finish; forced termination can leave retry files.
+terminationGracePeriodSeconds: 300
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+nodeSelector: {}
+tolerations: []
+affinity: {}

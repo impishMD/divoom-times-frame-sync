@@ -1,0 +1,80 @@
+name: Helm Release
+
+on:
+  push:
+    tags: ['chart-v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-release
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/helm-ci.yml
+  release:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # chart-releaser pushes the index to gh-pages using this credential.
+          persist-credentials: true
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.22.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - run: python -m pip install . PyYAML==6.0.3
+      - name: Validate tag and package chart
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/check-chart.py --release-tag "$RELEASE_TAG"
+          version=${RELEASE_TAG#chart-v}
+          cp "docs/en/chart-releases/v$version.md" charts/divoom-times-frame-sync/RELEASE.md
+          helm package charts/divoom-times-frame-sync --destination .cr-release-packages
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - uses: helm/chart-releaser-action@a0d2dc62c5e491af8ef6ba64a2e02bcf3fb33aa1 # v1.7.0
+        with:
+          config: .github/chart-releaser.yaml
+          skip_packaging: true
+          skip_existing: true
+          mark_as_latest: false
+        env:
+          CR_TOKEN: ${{ github.token }}
+  pages:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gh-pages
+          persist-credentials: false
+          path: site
+      - name: Prepare Pages files
+        run: |
+          mkdir public
+          cp site/index.yaml site/index.html public/
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: public
+      - name: Deploy Helm repository
+        id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

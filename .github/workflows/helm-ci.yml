@@ -1,0 +1,57 @@
+name: Helm CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'charts/**'
+      - 'scripts/check-chart*'
+      - '.github/workflows/helm-*.yml'
+      - '.github/chart-releaser.yaml'
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'scripts/check-chart*'
+      - '.github/workflows/helm-*.yml'
+      - '.github/chart-releaser.yaml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        helm: ['v3.22.0', 'v4.3.0']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ matrix.helm }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - run: python -m pip install . PyYAML==6.0.3
+      - run: helm lint charts/divoom-times-frame-sync --strict -f charts/divoom-times-frame-sync/ci/test-values.yaml
+      - run: python scripts/check-chart.py
+      - run: helm package charts/divoom-times-frame-sync --destination "$RUNNER_TEMP"
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.22.0
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          cluster_name: tfs-chart
+      - run: bash scripts/check-chart-install.sh

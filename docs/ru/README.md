@@ -84,7 +84,7 @@ target_album = "Photos"
 
 ### 2. Запустите сервис
 
-Выберите Docker Compose или локальную установку Python. Оба способа используют одинаковые `.env`, `sources.toml` и каталог `data/`.
+Выберите Docker Compose, Kubernetes или локальную установку Python. Compose и Python используют одинаковые `.env`, `sources.toml` и каталог `data/`; Helm-чарт подключает настройки и хранилище средствами Kubernetes.
 
 #### Docker Compose
 
@@ -104,6 +104,17 @@ docker compose logs -f
 Чтобы закрепить версию или использовать GHCR, задайте `TFS_IMAGE` в `.env`, например `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.7.1`. У стабильных релизов есть тег версии и `latest`, у предварительных — только тег версии. Для обновления выполните `docker compose pull && docker compose up -d --no-build`. Для сборки из локальных исходников используйте `docker compose up -d --build --pull never`.
 
 Контейнер включает FFmpeg для преобразования видео. `sources.toml` подключается только для чтения, состояние синхронизации сохраняется в `data/`. Контейнеру нужен исходящий доступ к сервисам альбомов и локальному API рамки, обычно на порту `9000`. Публиковать входящие порты не требуется.
+
+#### Kubernetes через Helm или Argo CD
+
+Helm-чарт поддерживает все пять провайдеров, существующий Secret с секретами и постоянное хранилище журнала. Чарт `0.1.0` по умолчанию использует приложение `0.7.1`.
+
+```sh
+helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
+helm repo update
+```
+
+Values для установки, создание Secret и пример Application — в [руководстве Helm и Argo CD](helm.md). Из Pod должны быть доступны рамка и сервисы альбомов.
 
 #### Python на macOS или Linux
 
@@ -232,6 +243,7 @@ OneDrive и Яндекс Диск предоставляют оригиналы 
 
 ## Документация
 
+- [Kubernetes, Helm и Argo CD](helm.md)
 - [Несколько источников и альбомы назначения](sources.md)
 - [Хранение, временные файлы и восстановление](storage.md)
 - [Режимы mirror и append](sync-modes.md)

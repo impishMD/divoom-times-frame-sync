@@ -41,6 +41,18 @@ Use synthetic fixtures and examples. Do not add real sharing links, tokens, devi
 
 Maintainers: see [the release guide](/docs/en/releases.md) for CI, multi-platform image publishing, registry secrets, and tag-based releases.
 
+## Helm chart development
+
+The chart is in `charts/divoom-times-frame-sync/`. With Helm and the Python development environment available:
+
+```sh
+.venv/bin/python -m pip install PyYAML==6.0.3
+helm lint charts/divoom-times-frame-sync --strict -f charts/divoom-times-frame-sync/ci/test-values.yaml
+.venv/bin/python scripts/check-chart.py
+```
+
+Helm CI also checks installation, upgrades, and PVC retention in its own kind cluster. `scripts/check-chart-install.sh` refuses any active context other than `kind-tfs-chart`; do not run it against an existing deployment. Keep chart LICENSE and NOTICE copies aligned with the repository originals. See [chart publishing](/docs/en/helm.md#publishing-charts) for independent chart versions and release tags.
+
 ## Licensing
 
 Contributions are governed by the contribution terms of the project's [Apache License 2.0](/LICENSE). Preserve existing copyright and license notices, including [NOTICE](/NOTICE). Do not copy third-party code without retaining its required notices and checking license compatibility.

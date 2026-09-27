@@ -4,6 +4,7 @@
 
 ## Workflows
 
+- Helm charts have their own **Helm CI** and **Helm Release** workflows, `chart-v…` tags, and [publishing guide](helm.md#publishing-charts). Chart-only changes skip the application CI and Packages workflows.
 - **CI** runs on pushes to `main`, pull requests, manual dispatch, and as part of a release. It runs Python tests on 3.11 and 3.13 and builds containers on native AMD64 and ARM64 runners. Container checks cover the CLI, Python dependencies, WebP support, and a short H.264/AAC conversion without network access.
 - **Packages** runs on the same events and builds a Python wheel, an sdist, and a complete source archive from the Git commit. It verifies installation from all three archives and uploads them with `checksums.txt` as an Actions artifact.
 - **Release** runs when a tag matching `v[0-9]*` is pushed. It calls both workflows, creates a draft GitHub release, builds and checks images in both registries on each native architecture, then publishes multi-platform tags and the release. A failed run leaves the release as a draft; the `latest` tags are updated only after both version manifests have been verified.

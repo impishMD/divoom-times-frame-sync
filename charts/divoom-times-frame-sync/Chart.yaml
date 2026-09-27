@@ -1,0 +1,17 @@
+apiVersion: v2
+name: divoom-times-frame-sync
+description: Sync public photo and video albums to Divoom Times Frame
+type: application
+version: 0.1.0
+appVersion: "0.7.1"
+kubeVersion: ">=1.26.0-0"
+home: https://github.com/impishMD/divoom-times-frame-sync
+sources:
+  - https://github.com/impishMD/divoom-times-frame-sync
+maintainers:
+  - name: impishMD
+    url: https://github.com/impishMD
+keywords:
+  - divoom
+  - photos
+  - sync

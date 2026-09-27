@@ -1,0 +1,11 @@
+Divoom Times Frame Sync runs as a single worker.
+
+Follow its logs:
+  kubectl -n {{ .Release.Namespace }} logs -f deployment/{{ include "tfs.fullname" . }}
+
+The Pod needs outbound access to {{ .Values.config.frame.host }}:{{ .Values.config.frame.port }}, DNS, and your album services.
+Create the destination albums in the Divoom app before syncing.
+Restart the Deployment after rotating values in the external Secret.
+Keep the data PVC between upgrades to preserve the sync journal.
+
+Guide: https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/helm.md

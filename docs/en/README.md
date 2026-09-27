@@ -84,7 +84,7 @@ Add more `[[sources]]` sections for additional albums, including albums from the
 
 ### 2. Start the service
 
-Choose Docker Compose or a local Python installation. Both use the same `.env`, `sources.toml`, and `data/` directory.
+Choose Docker Compose, Kubernetes, or a local Python installation. Compose and Python use the same `.env`, `sources.toml`, and `data/` directory; the Helm chart supplies configuration and storage through Kubernetes.
 
 #### Docker Compose
 
@@ -104,6 +104,17 @@ docker compose logs -f
 To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.7.1`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
 
 The container includes FFmpeg for video conversion. It reads `sources.toml` through a read-only mount and stores sync state in `data/`. It needs outbound access to your album services and the frame's local API, normally on port `9000`. No inbound ports need to be published.
+
+#### Kubernetes with Helm or Argo CD
+
+The Helm chart supports all five providers, an existing Secret for credentials, and persistent journal storage. Chart `0.1.0` uses application `0.7.1` by default.
+
+```sh
+helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
+helm repo update
+```
+
+See the [Helm and Argo CD guide](/docs/en/helm.md) for installation values, Secret setup, and an Application example. The Pod needs network access to the frame and album services.
 
 #### Python on macOS or Linux
 
@@ -232,6 +243,7 @@ Restart the service after changing configuration. For Compose, use `docker compo
 
 ## Documentation
 
+- [Kubernetes, Helm, and Argo CD](/docs/en/helm.md)
 - [Multiple sources and destination albums](/docs/en/sources.md)
 - [Storage, temporary files, and recovery](/docs/en/storage.md)
 - [Mirror and append modes](/docs/en/sync-modes.md)
