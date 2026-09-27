@@ -246,10 +246,34 @@
       }
     },
     "podSecurityContext": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "runAsUser": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "runAsGroup": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
     },
     "securityContext": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "runAsUser": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "runAsGroup": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
     },
     "nodeSelector": {
       "type": "object",
@@ -265,6 +289,18 @@
     },
     "affinity": {
       "type": "object"
+    },
+    "volumePermissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ]
     }
   },
   "required": [
@@ -273,6 +309,7 @@
     "existingSecret",
     "config",
     "sources",
-    "persistence"
+    "persistence",
+    "volumePermissions"
   ]
 }

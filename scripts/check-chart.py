@@ -87,6 +87,7 @@ def main():
     assert deployment["spec"]["strategy"]["type"] == "Recreate"
     assert not pod["automountServiceAccountToken"]
     assert pod["securityContext"]["runAsNonRoot"]
+    assert "initContainers" not in pod
     assert container["securityContext"]["readOnlyRootFilesystem"]
     assert container["image"].endswith(":v" + chart["appVersion"])
     assert container["envFrom"] == [{"secretRef": {"name": "tfs-test"}}]
@@ -94,6 +95,38 @@ def main():
     assert "storageClassName" not in claim["spec"]
     assert claim["metadata"]["annotations"]["helm.sh/resource-policy"] == "keep"
     assert "Prune=false" in claim["metadata"]["annotations"]["argocd.argoproj.io/sync-options"]
+
+    permissions = copy.deepcopy(values)
+    permissions["volumePermissions"] = {"enabled": True}
+    permissions["podSecurityContext"] = {"fsGroup": None}
+    permissions["persistence"] = {"existingClaim": "imported-journal"}
+    rendered = render(permissions)
+    permission_pod = rendered["Deployment"]["spec"]["template"]["spec"]
+    init = permission_pod["initContainers"][0]
+    assert len(permission_pod["initContainers"]) == 1
+    assert init["image"] == permission_pod["containers"][0]["image"]
+    assert init["command"] == ["/bin/sh", "-ec"]
+    assert init["args"] == ["chown -R --no-dereference 1000:1000 /app/data && chmod -R u+rwX /app/data"]
+    assert init["volumeMounts"] == [{"name": "data", "mountPath": "/app/data"}]
+    assert "env" not in init and "envFrom" not in init
+    assert init["securityContext"]["runAsUser"] == 0
+    assert not init["securityContext"]["runAsNonRoot"]
+    assert not init["securityContext"]["allowPrivilegeEscalation"]
+    assert init["securityContext"]["readOnlyRootFilesystem"]
+    assert init["securityContext"]["capabilities"] == {
+        "drop": ["ALL"], "add": ["CHOWN", "FOWNER", "DAC_OVERRIDE"]}
+    assert permission_pod["securityContext"]["runAsUser"] == 1000
+    assert permission_pod["containers"][0]["securityContext"]["capabilities"] == {"drop": ["ALL"]}
+    assert "PersistentVolumeClaim" not in rendered
+    for overrides in ({"podSecurityContext": {"runAsUser": 2000, "runAsGroup": 3000}},
+                      {"securityContext": {"runAsUser": 2000, "runAsGroup": 3000}}):
+        custom = render({**permissions, **overrides})
+        init = custom["Deployment"]["spec"]["template"]["spec"]["initContainers"][0]
+        assert " 2000:3000 " in init["args"][0]
+    for overrides in ({"securityContext": {"runAsUser": 0}},
+                      {"podSecurityContext": {"runAsGroup": None}},
+                      {"securityContext": {"runAsUser": "1000"}}):
+        render({**permissions, **overrides}, valid=False)
 
     # Large YAML numbers must reach Python's int() as decimal strings, not
     # scientific notation. Cover a typical user ID, bounds, and a long interval.

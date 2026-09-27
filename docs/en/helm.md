@@ -2,7 +2,7 @@
 
 **English** | [Русский](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/ru/helm.md)
 
-The chart deploys one Divoom Times Frame Sync worker, a ConfigMap describing its sources, and a persistent volume claim. It uses the public Docker Hub image for AMD64 and ARM64. Chart `0.1.1` defaults to application `0.7.1`.
+The chart deploys one Divoom Times Frame Sync worker, a ConfigMap describing its sources, and a persistent volume claim. It uses the public Docker Hub image for AMD64 and ARM64. Chart `0.1.2` defaults to application `0.7.1`.
 
 The Pod must reach the frame's IP on TCP port `9000` (or your configured port), DNS, and the source services over HTTP/HTTPS. Create ordinary destination albums in the Divoom app first. Stop any other sync service managing the same frame before starting this deployment. Each frame needs its own release and data volume.
 
@@ -62,7 +62,7 @@ Requires Helm 3+ and Kubernetes 1.26+.
 helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
 helm repo update
 helm upgrade --install divoom-sync divoom/divoom-times-frame-sync \
-  --version 0.1.1 --namespace divoom-sync --create-namespace \
+  --version 0.1.2 --namespace divoom-sync --create-namespace \
   --values values.yaml
 kubectl -n divoom-sync logs -f deployment/divoom-sync-divoom-times-frame-sync
 ```
@@ -84,7 +84,7 @@ spec:
   source:
     repoURL: https://impishmd.github.io/divoom-times-frame-sync/
     chart: divoom-times-frame-sync
-    targetRevision: 0.1.1
+    targetRevision: 0.1.2
     helm:
       valuesObject:
         existingSecret: tfs-credentials
@@ -113,13 +113,26 @@ Persistence is mandatory. The default 10 GiB PVC holds the journal and temporary
 
 The chart runs as UID/GID 1000 with `fsGroup: 1000`. The storage driver must support those permissions and file locking; existing files must be writable by the configured user. Container root storage is read-only, with a separate writable `/tmp`. CPU requests default to 100m and memory requests to 256 MiB, with a 1 GiB memory limit. Adjust resources for large photos and video conversion.
 
+If startup fails with `Permission denied: '/app/data/.lock'`, check ownership of the PVC directory and existing files. For a dedicated volume whose driver does not apply `fsGroup`, or files imported with another owner, enable:
+
+```yaml
+volumePermissions:
+  enabled: true
+```
+
+This option defaults to `false`. Before each new Pod starts the worker, a root init container uses the same application image to recursively set the data volume's owner to the worker's UID/GID and grant that owner read/write access and directory traversal. Container-level `securityContext.runAsUser`/`runAsGroup` override the Pod settings. The init container mounts only the data volume, receives no album credentials, and does not follow symlinks during traversal. Existing file contents are preserved. The worker still runs as a non-root user. Preparing a large imported directory can increase startup time.
+
+The namespace must permit this root init container and its `CHOWN`, `FOWNER`, and `DAC_OVERRIDE` capabilities. If cluster policy disallows it, have the storage administrator prepare the PVC for the worker's UID/GID instead.
+
+One cause with Synology iSCSI is a `CSIDriver` using `fsGroupPolicy: ReadWriteOnceWithFSType` while the PV has no `spec.csi.fsType`. In that combination Kubernetes skips applying `fsGroup`; changing the Pod's `fsGroupChangePolicy` alone does not fix it. The permission-init option prepares this application's PVC without changing the cluster-wide CSI policy. See [CSI fsGroup support](https://kubernetes-csi.github.io/docs/support-fsgroup.html).
+
 `replicaCount` is fixed at one. Deployment updates use `Recreate` so the old Pod is terminated before its replacement during a normal rollout. Do not run separate releases against the same data or frame. The default termination grace period is 300 seconds; unfinished work is retried from the journal after a forced stop.
 
 Source/config changes trigger a rollout. After changing values inside the external Secret, restart the Deployment or use your cluster's secret-reload controller. Pod readiness means the process is running, not that a sync cycle has succeeded; source/frame outages are retried and reported in application logs. No network liveness probe is used.
 
 `persistence.retain: true` preserves a chart-created PVC on Helm uninstall and Argo CD prune/application deletion. Delete it manually only when its journal is no longer needed. A retained PVC can be reused through `persistence.existingClaim`; deleting the entire namespace also deletes the PVC. To opt into ordinary chart-managed deletion, set `retain: false` and apply that change before uninstalling.
 
-The image tag defaults to `v<Chart.appVersion>`; `image.tag` overrides it and `image.digest` takes precedence over tags. `imagePullSecrets` supports private registries. To update, select a new chart version, review its defaults, and sync/upgrade. See [chart releases](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/chart-releases/v0.1.1.md).
+The image tag defaults to `v<Chart.appVersion>`; `image.tag` overrides it and `image.digest` takes precedence over tags. `imagePullSecrets` supports private registries. To update, select a new chart version, review its defaults, and sync/upgrade. See [chart releases](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/chart-releases/v0.1.2.md).
 
 ## Publishing charts
 

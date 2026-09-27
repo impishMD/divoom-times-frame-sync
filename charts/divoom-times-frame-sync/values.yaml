@@ -46,6 +46,11 @@ persistence:
   retain: true
   annotations: {}
 
+# Enable for a dedicated PVC whose driver does not apply fsGroup, or after
+# importing files owned by another user. A root init container prepares /app/data.
+volumePermissions:
+  enabled: false
+
 resources:
   requests:
     cpu: 100m

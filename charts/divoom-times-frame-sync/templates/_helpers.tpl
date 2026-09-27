@@ -42,3 +42,18 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- $_ := set $ids $id true -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "tfs.dataOwner" -}}
+{{- $uid := .Values.podSecurityContext.runAsUser -}}
+{{- $gid := .Values.podSecurityContext.runAsGroup -}}
+{{- if hasKey .Values.securityContext "runAsUser" -}}
+{{- $uid = .Values.securityContext.runAsUser -}}
+{{- end -}}
+{{- if hasKey .Values.securityContext "runAsGroup" -}}
+{{- $gid = .Values.securityContext.runAsGroup -}}
+{{- end -}}
+{{- if or (eq $uid nil) (le ($uid | int64) 0) (eq $gid nil) -}}
+{{- fail "volumePermissions requires an explicit non-root runAsUser and runAsGroup for the sync container" -}}
+{{- end -}}
+{{- printf "%d:%d" ($uid | int64) ($gid | int64) -}}
+{{- end -}}

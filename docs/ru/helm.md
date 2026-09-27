@@ -2,7 +2,7 @@
 
 [English](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/helm.md) | **Русский**
 
-Чарт создаёт один процесс Divoom Times Frame Sync, ConfigMap с описанием источников и постоянный том. Используется публичный образ Docker Hub для AMD64 и ARM64. Чарт `0.1.1` по умолчанию запускает приложение `0.7.1`.
+Чарт создаёт один процесс Divoom Times Frame Sync, ConfigMap с описанием источников и постоянный том. Используется публичный образ Docker Hub для AMD64 и ARM64. Чарт `0.1.2` по умолчанию запускает приложение `0.7.1`.
 
 Из Pod должны быть доступны IP рамки по TCP/9000 (или настроенному порту), DNS и фотосервисы по HTTP/HTTPS. Заранее создайте обычные целевые альбомы в приложении Divoom. Перед запуском остановите другие экземпляры синхронизатора, работающие с этой рамкой. Для каждой рамки нужны отдельный релиз и том данных.
 
@@ -62,7 +62,7 @@ persistence:
 helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
 helm repo update
 helm upgrade --install divoom-sync divoom/divoom-times-frame-sync \
-  --version 0.1.1 --namespace divoom-sync --create-namespace \
+  --version 0.1.2 --namespace divoom-sync --create-namespace \
   --values values.yaml
 kubectl -n divoom-sync logs -f deployment/divoom-sync-divoom-times-frame-sync
 ```
@@ -84,7 +84,7 @@ spec:
   source:
     repoURL: https://impishmd.github.io/divoom-times-frame-sync/
     chart: divoom-times-frame-sync
-    targetRevision: 0.1.1
+    targetRevision: 0.1.2
     helm:
       valuesObject:
         existingSecret: tfs-credentials
@@ -113,13 +113,26 @@ spec:
 
 Процесс работает с UID/GID 1000 и `fsGroup: 1000`. Драйвер хранилища должен поддерживать эти права и блокировку файлов; существующие файлы должны быть доступны для записи выбранному пользователю. Корневая файловая система контейнера доступна только для чтения, `/tmp` вынесен в отдельный записываемый том. По умолчанию запрашиваются 100m CPU и 256 MiB памяти, лимит памяти — 1 GiB. Для больших фотографий и конвертации видео ресурсы можно увеличить.
 
+Если запуск завершается с `Permission denied: '/app/data/.lock'`, проверьте владельца каталога PVC и существующих файлов. Для отдельного тома приложения, драйвер которого не применяет `fsGroup`, или файлов, перенесённых с другим владельцем, включите:
+
+```yaml
+volumePermissions:
+  enabled: true
+```
+
+По умолчанию опция выключена. Перед запуском сервиса в каждом новом Pod init-контейнер от root использует тот же образ приложения, рекурсивно выставляет владельца тома в UID/GID сервиса и даёт этому владельцу права чтения, записи и обхода каталогов. Настройки `securityContext.runAsUser`/`runAsGroup` контейнера имеют приоритет над настройками Pod. Init-контейнер подключает только том данных, не получает секреты альбомов и не переходит по символическим ссылкам при обходе. Содержимое файлов сохраняется. Сам сервис продолжает работать без root. Подготовка большого перенесённого каталога может увеличить время старта.
+
+Политика namespace должна разрешать этот root init-контейнер и capabilities `CHOWN`, `FOWNER`, `DAC_OVERRIDE`. Если политика кластера их запрещает, права PVC под UID/GID сервиса должен подготовить администратор хранилища.
+
+Одна из причин при работе с Synology iSCSI — `fsGroupPolicy: ReadWriteOnceWithFSType` у `CSIDriver` при отсутствующем `spec.csi.fsType` у PV. В этой комбинации Kubernetes пропускает применение `fsGroup`; смена одного лишь `fsGroupChangePolicy` у Pod не помогает. Опция подготовки прав работает с PVC этого приложения без изменения общей политики CSI в кластере. Подробнее: [поддержка fsGroup в CSI](https://kubernetes-csi.github.io/docs/support-fsgroup.html).
+
 `replicaCount` зафиксирован на единице. Обновление Deployment использует `Recreate`: при обычном rollout старый Pod завершается до запуска нового. Не запускайте отдельные релизы с общими данными или одной рамкой. По умолчанию на завершение отводится 300 секунд; после принудительной остановки незавершённые операции повторяются с учётом журнала.
 
 Изменение источников/настроек вызывает rollout. После замены значений во внешнем Secret перезапустите Deployment или используйте принятый в кластере контроллер перезагрузки секретов. Готовность Pod означает запуск процесса, а не успешную синхронизацию; недоступность источников/рамки отражается в логах и повторяется следующим циклом. Сетевая liveness-проба не используется.
 
 `persistence.retain: true` сохраняет созданный чартом PVC при Helm uninstall, Argo CD prune и удалении Application. Удаляйте его вручную, когда журнал больше не нужен. Сохранённый том можно подключить через `persistence.existingClaim`; удаление всего namespace удаляет и PVC. Чтобы разрешить обычное удаление вместе с чартом, установите `retain: false` и примените настройку до uninstall.
 
-Тег образа по умолчанию — `v<Chart.appVersion>`. Его переопределяет `image.tag`, а `image.digest` имеет приоритет над тегами. Для приватных реестров предусмотрен `imagePullSecrets`. Для обновления выберите новую версию чарта, проверьте её настройки и выполните sync/upgrade. [Заметки о выпуске чарта](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/ru/chart-releases/v0.1.1.md).
+Тег образа по умолчанию — `v<Chart.appVersion>`. Его переопределяет `image.tag`, а `image.digest` имеет приоритет над тегами. Для приватных реестров предусмотрен `imagePullSecrets`. Для обновления выберите новую версию чарта, проверьте её настройки и выполните sync/upgrade. [Заметки о выпуске чарта](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/ru/chart-releases/v0.1.2.md).
 
 ## Публикация чартов
 
