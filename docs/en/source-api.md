@@ -235,13 +235,13 @@ Prefer: autoredeem
 
 The client reads the `value` array. It deliberately omits the viewer's `photo ne null` filter because completeness checks must include videos. If `@odata.nextLink` is present, the request uses that URL without adding the first page's parameters. Only the same API host and this album's `/children` path are allowed. Empty incomplete pages, repeated URLs or IDs, unknown media, and deleted/redirected records stop the cycle.
 
-The unique item count, including skipped videos, must match the reported count. A final metadata GET must return unchanged ID, count, `eTag`, and modification time.
+The unique item count, including both photos and videos, must match the reported count. A final metadata GET must return unchanged ID, count, `eTag`, and modification time.
 
 The standard `value`/`@odata.nextLink` structure is documented in [Microsoft's child-listing reference](https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0); the `/albums` route and anonymous authentication come from the current public client.
 
 ### Photos and previews
 
-Records with `video` are skipped. Photos must have `image` and `file.mimeType=image/*`. The client uses `id`, `name`, `cTag`, `lastModifiedDateTime`, and `size`; the last three determine the cache revision. Temporary download URLs do not affect it.
+Photos must have `image` and `file.mimeType=image/*`. The client uses `id`, `name`, `cTag`, `lastModifiedDateTime`, and `size`; the last three determine the cache revision. Temporary download URLs do not affect it.
 
 Only for new or changed photos:
 
@@ -255,6 +255,25 @@ The signed image URL comes from `value[0].c2048x2048.url`. The next CDN GET is s
 
 An expired token, unavailable preview, or HTTP error cancels the corresponding destination's update for this cycle. The next cycle obtains a new anonymous token and retries the read.
 
+### Videos
+
+A record with a `video` object is synced as video, even when it has no `image` object. It must contain `file.mimeType=video/*` or `application/octet-stream`, a positive integer `size`, nonempty `cTag` and `lastModifiedDateTime`, and a signed download URL. The public viewer supplies `@content.downloadUrl`; `@microsoft.graph.downloadUrl` is also accepted. An unavailable or malformed video fails the whole source snapshot rather than silently excluding the item.
+
+The revision uses `cTag`, `lastModifiedDateTime`, and `size`, just as for photos. Temporary URLs stay in memory and are refreshed with each complete listing; a new URL signature does not cause another upload.
+
+Only when a video needs downloading:
+
+```http
+GET <@content.downloadUrl>
+Accept-Encoding: identity
+```
+
+This fetches the original video. No `Authorization` or `Prefer` header is attached, even if the download URL uses `my.microsoftpersonalcontent.com`. Microsoft documents the short-lived, preauthenticated URL and the absence of an authorization requirement in its [download reference](https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0); the public viewer's anonymous API flow is described above.
+
+The URL and every redirect must use HTTPS with the default port, no embedded credentials, and either the exact host `my.microsoftpersonalcontent.com` or a subdomain of `svc.ms`, `1drv.com`, `livefilestore.com`, or `onedrive.com`. At most six requests are allowed. The response must be HTTP 200 with `video/*` or `application/octet-stream`, without content encoding. `Content-Length`, when present, must match the listed size; the actual streamed byte count must match it regardless of the header. HTML, partial responses, size mismatches, expired links, and interrupted streams stop the attempt without pruning existing album members. The next cycle resolves fresh access and retries.
+
+The downloaded file is converted locally to the frame's MP4 format, with a WebP cover generated from the video. No thumbnail request is needed for that cover. Upload verification, temporary-file cleanup, mirror/append behavior, and deduplication use the common video pipeline.
+
 ## General limitations
 
-The Google, Apple, Yandex, and Microsoft public viewers are not stable third-party APIs. A schema change, HTTP 403/429, login page, network error, or expired URL stops the affected destination group; the next cycle retries. The synchronizer does not log into accounts, bypass CAPTCHAs, or automate a browser. It syncs images for display rather than originals for backup.
+The Google, Apple, Yandex, and Microsoft public viewers are not stable third-party APIs. A schema change, HTTP 403/429, login page, network error, or expired URL stops the affected destination group; the next cycle retries. The synchronizer does not log into accounts, bypass CAPTCHAs, or automate a browser. It prepares media for display on the frame, not for original-quality backups.

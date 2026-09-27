@@ -172,6 +172,40 @@ def test_icloud_video_upload_retry_cleanup_and_mirror(video_sync):
     assert sync.frame.db.members[123] == {1}
 
 
+def test_onedrive_video_retry_cleanup_restart_and_mirror(video_sync):
+    from test_onedrive import item, metadata, video_client
+    from test_google_photos import video_response
+
+    sync = video_sync
+    source = video_client(video_response(b"truncated"), video_response())
+    def refresh():
+        source.api.side_effect = [metadata(1), {"value": [item("clip", video=True)]}, metadata(1)]
+        sync.immich = source
+        sync.refresh()
+    refresh()
+    with pytest.raises(SyncError, match="incomplete"):
+        sync.sync_album()
+    assert sync.frame.db.members[123] == {1} and sync.frame.uploads == 0
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    refresh()
+    result = sync.sync_album()
+    assert result["videos"] == result["downloaded"] == result["uploaded"] == 1
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    # Recreate both client and synchronizer using only the saved metadata.
+    previous_frame = sync.frame
+    sync = Synchronizer(sync.config)
+    sync.frame = previous_frame
+    source = video_client()
+    refresh()
+    result = sync.sync_album()
+    assert result["downloaded"] == result["uploaded"] == 0
+    source.session.request.assert_not_called()
+    source.api.side_effect = [metadata(0), {"value": []}, metadata(0)]
+    sync.refresh()
+    assert sync.sync_album()["removed"] == 1
+    assert sync.frame.db.members[123] == {1}
+
+
 @pytest.mark.parametrize("damage", ["movie", "cover", "flag"])
 def test_video_readback_failure_keeps_files_and_blocks_pruning(video_sync, damage):
     sync = video_sync

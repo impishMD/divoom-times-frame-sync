@@ -25,7 +25,7 @@ The service uses **album sharing links** that can be opened without signing into
 | Google Photos | `photos.app.goo.gl/...` or `photos.google.com/share/...` | Yes | Yes |
 | iCloud Photos | `photos.icloud.com/shared/album/...` | Yes | Yes |
 | Immich | `<your-server>/share/...`, optionally with a password | Yes | Yes |
-| OneDrive | `1drv.ms/a/...` from a personal account | Yes | Not yet |
+| OneDrive | `1drv.ms/a/...` from a personal account | Yes | Yes |
 | Yandex Disk | `disk.yandex.ru/a/...` or `disk.yandex.com/a/...` | Yes | Not yet |
 
 An account login, OAuth setup, and browser automation are not required to read these albums. Each link grants access to its album, so keep your actual links and passwords in local configuration files.
@@ -153,11 +153,13 @@ The frame displays one album at a time. For one slideshow containing all your so
 
 Photos are resized to 800×1280 and uploaded as WebP. `IMAGE_FIT=contain` keeps the whole image with borders; `cover` fills the screen by cropping.
 
-Video sync is available for Google Photos, iCloud Photos, and Immich albums. Videos are converted locally to MP4 with H.264 video and AAC audio when present, at 800×1280 and 30 fps. Rotation is applied, `IMAGE_FIT` controls framing, and the full duration is retained. Each video is uploaded with a WebP cover and follows the same sync rules as photos. Enable video autoplay on the frame for automatic playback.
+Video sync is available for Google Photos, iCloud Photos, Immich, and OneDrive albums. Videos are converted locally to MP4 with H.264 video and AAC audio when present, at 800×1280 and 30 fps. Rotation is applied, `IMAGE_FIT` controls framing, and the full duration is retained. Each video is uploaded with a WebP cover and follows the same sync rules as photos. Enable video autoplay on the frame for automatic playback.
 
 iCloud Photos supplies downloadable video resources through the public album link. The service prefers rendered edits and prepared video versions, falling back to the original when necessary. Live Photos are synced as still images.
 
 Google Photos supplies a transcoded video download through the public album link. Newly uploaded videos may need time to finish processing on Google's side. If a video is unavailable or its download fails, the service retries on the next cycle and preserves existing album items.
+
+OneDrive supplies the original video through a temporary download link. The service verifies the downloaded size against the album metadata before conversion. Expired links or interrupted downloads are retried on the next cycle.
 
 ## Local storage
 
@@ -209,7 +211,7 @@ Restart the service after changing configuration. For Compose, use `docker compo
 ## Current scope
 
 - Sources must be accessible through supported public album links. Private account libraries are not supported.
-- Video from OneDrive and Yandex Disk is currently skipped. iCloud Live Photos are synced as still images.
+- Video from Yandex Disk is currently skipped. iCloud Live Photos are synced as still images.
 - Legacy iCloud `sharedalbum/#...` links, public folders on Yandex Disk or OneDrive, and OneDrive for Business/SharePoint are not supported.
 - Public album viewers may change their protocols. Frame API compatibility depends on the firmware.
 

@@ -4,6 +4,7 @@
 """Anonymous personal OneDrive photo albums, as read by the public viewer."""
 import base64
 import json
+from pathlib import Path
 import re
 from urllib.parse import quote, urlsplit
 
@@ -24,6 +25,7 @@ class OneDrive(PublicSource):
         super().__init__(url)
         self.authorization = {}
         self.thumbnail_endpoints = {}
+        self.videos: dict[str, tuple[str, int]] = {}
 
     def api(self, method: str, url: str, **kwargs):
         parts = urlsplit(url)
@@ -44,7 +46,7 @@ class OneDrive(PublicSource):
 
     def resolve(self):
         # A fresh anonymous session each cycle: no Microsoft account or browser
-        # cookies. Never attach this authorization to a thumbnail CDN request.
+        # cookies. Never attach this authorization to a media download request.
         token = self.request("POST", "https://api-badgerp.svc.ms/v1.0/token",
                              json={"appId": self.app_id}, allow_redirects=False).json()
         if token.get("authScheme") != "badger" or not isinstance(token.get("token"), str) or not token["token"]:
@@ -77,7 +79,7 @@ class OneDrive(PublicSource):
             title = metadata["name"]
             if snapshot[0] != album_id or not isinstance(title, str) or not title:
                 raise ValueError
-            photos, thumbnails, ids, pages = [], {}, set(), set()
+            photos, thumbnails, videos, ids, pages = [], {}, {}, set(), set()
             children_url = endpoint + "/children"
             url = children_url
             params = {"top": self.page_size}
@@ -94,12 +96,22 @@ class OneDrive(PublicSource):
                     if asset_id in ids or "deleted" in item or "remoteItem" in item:
                         raise ValueError
                     ids.add(asset_id)
-                    if item.get("video") is not None:
-                        continue
-                    if not isinstance(item.get("image"), dict) or not item["file"]["mimeType"].startswith("image/"):
+                    video = item.get("video") is not None
+                    mime_type = item["file"]["mimeType"]
+                    if video:
+                        download_url = item.get("@content.downloadUrl") or item.get("@microsoft.graph.downloadUrl")
+                        if (not isinstance(item["video"], dict)
+                                or not (mime_type.startswith("video/") or mime_type == "application/octet-stream")
+                                or not isinstance(download_url, str) or not download_url
+                                or type(item["size"]) is not int or item["size"] <= 0
+                                or not isinstance(item["cTag"], str) or not item["cTag"]
+                                or not isinstance(item["lastModifiedDateTime"], str) or not item["lastModifiedDateTime"]):
+                            raise ValueError
+                        videos[asset_id] = (download_url, item["size"])
+                    elif not isinstance(item.get("image"), dict) or not mime_type.startswith("image/"):
                         raise SyncError("OneDrive: unsupported album media; keeping previous snapshot")
                     revision = json.dumps([item["cTag"], item["lastModifiedDateTime"], item["size"]])
-                    photos.append(Asset(asset_id, revision, item["name"]))
+                    photos.append(Asset(asset_id, revision, item["name"], "video" if video else "photo"))
                     thumbnails[asset_id] = base + "/items/" + asset_id + "/thumbnails"
                 if len(ids) > snapshot[1]:
                     raise ValueError
@@ -115,7 +127,8 @@ class OneDrive(PublicSource):
                 raise ValueError
             self.thumbnail_endpoints = thumbnails
             self.images = {}
-            return Album(drive_id + ":" + album_id, title, photos, len(ids) - len(photos))
+            self.videos = videos
+            return Album(drive_id + ":" + album_id, title, photos)
         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             raise SyncError("OneDrive: incomplete or unsupported public album; retry") from None
 
@@ -129,3 +142,13 @@ class OneDrive(PublicSource):
             return super().preview(asset_id)
         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             raise SyncError("OneDrive: photo preview unavailable") from None
+
+    def download_video(self, asset_id: str, destination: Path) -> None:
+        video = self.videos.get(asset_id)
+        if not video:
+            raise SyncError("OneDrive: video missing from the last album listing; refresh and retry")
+        url, size = video
+        # Signed URLs authenticate the download themselves. The badger token
+        # belongs only on API requests, even if the download shares that host.
+        self.download_video_resource(url, size, destination, domains=self.image_domains,
+                                     hosts=("my.microsoftpersonalcontent.com",))
