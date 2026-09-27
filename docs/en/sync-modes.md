@@ -89,8 +89,18 @@ If the journal (`data/device-state.json` in the legacy layout or `data/targets/<
 Example log for a completed cycle:
 
 ```text
+Source family (immich), album Family: listed 2 photos, 1 videos; 0 prefetched, 0 videos skipped; 0.5s
 Native album Photos (123456), mode=mirror: 2 photos, 1 videos, 3 matched metadata, 0 content checked, 0 downloaded, 0 uploaded, 1 removed, 0 missing items retained; 1.2s
+Sync cycle complete; 1.8s
 ```
+
+Both `sync` and each `run` cycle report three elapsed times, measured with a monotonic clock:
+
+- `Source` (or `Immich album` in single-source mode): reading that source album's complete listing and updating its local manifest. Explicit `cache` runs also include prefetching.
+- `Native album`: synchronizing one destination, including frame database reads, reconciliation, any necessary source downloads and conversion, uploads, verification, journal writes, and playback selection when requested. It excludes source listing and is not the duration of one HTTP request.
+- `Sync cycle`: the entire operation across all configured sources and destinations, including preparation between stages. It excludes lock acquisition and the `SYNC_INTERVAL` wait, which starts after this line.
+
+The total can differ slightly from the sum of the displayed stage times because of intermediate work and rounding. A partial failure ends with `Sync cycle finished with N errors`; an exception that stops the cycle produces `Sync cycle failed`, both with elapsed time.
 
 `photos` and `videos` count unique prepared photos and videos in the current combined source set; `removed` counts records removed from the destination; `missing items retained` counts tracked records kept by `append` despite their absence from the current set. Manually added photos are not included in these counters.
 

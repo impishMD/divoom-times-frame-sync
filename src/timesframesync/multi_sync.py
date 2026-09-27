@@ -6,6 +6,7 @@ from dataclasses import replace
 import hashlib
 import json
 import logging
+import time
 
 from .cache import Cache, atomic_write
 from .config import Config, SyncError
@@ -35,6 +36,7 @@ class MultiSynchronizer:
         self.ready, self.errors = set(), {}
         results = {}
         for spec in self.specs:
+            started = time.monotonic()
             try:
                 album = self.clients[spec.id].album()
                 # Prefix remote IDs by provider so changing a source's provider
@@ -43,11 +45,12 @@ class MultiSynchronizer:
                 result = self.caches[spec.id].sync(self.clients[spec.id], album, download=download)
                 self.ready.add(spec.id)
                 results[spec.id] = result
-                log.info("Source %s (%s), album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped",
-                         spec.id, spec.provider, album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"])
+                log.info("Source %s (%s), album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped; %.1fs",
+                         spec.id, spec.provider, album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"],
+                         time.monotonic() - started)
             except (SyncError, OSError) as error:
                 self.errors[spec.id] = str(error)
-                log.error("Source %s failed: %s", spec.id, error)
+                log.error("Source %s failed: %s; %.1fs", spec.id, error, time.monotonic() - started)
         return {"sources": results, "errors": dict(self.errors)}
 
     def target_sync(self, name: str, specs: list, *, migrate: bool = True) -> Synchronizer:
@@ -92,6 +95,7 @@ class MultiSynchronizer:
             if any(s.id not in self.ready for s in specs):
                 log.warning("Target %s skipped: not every source has a complete snapshot", name)
                 continue
+            started = time.monotonic()
             try:
                 target = self.target_sync(name, specs)
                 result = target.sync_album(play=play and not played)
@@ -103,7 +107,7 @@ class MultiSynchronizer:
                         self.root_state.save_device_state({"previous_clock_id": previous})
             except (SyncError, OSError) as error:
                 errors["target:" + name] = str(error)
-                log.error("Target %s failed: %s", name, error)
+                log.error("Target %s failed: %s; %.1fs", name, error, time.monotonic() - started)
         # A cached snapshot alone cannot authorize another reconciliation.
         self.ready = None
         return {"albums": results, **{key: sum(r[key] for r in results) for key in

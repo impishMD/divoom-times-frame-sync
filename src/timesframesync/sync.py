@@ -26,10 +26,16 @@ class Synchronizer:
     def refresh(self, *, download: bool = False) -> dict:
         if self.immich is None:
             raise SyncError("This target has no direct source; refresh its source group first")
-        album = self.immich.album()
-        result = self.cache.sync(self.immich, album, download=download)
-        log.info("Immich album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped",
-                 album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"])
+        started = time.monotonic()
+        try:
+            album = self.immich.album()
+            result = self.cache.sync(self.immich, album, download=download)
+        except (SyncError, OSError) as error:
+            log.error("Immich source failed: %s; %.1fs", error, time.monotonic() - started)
+            raise
+        log.info("Immich album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped; %.1fs",
+                 album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"],
+                 time.monotonic() - started)
         return result
 
     def device_state(self) -> dict:

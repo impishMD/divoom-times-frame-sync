@@ -6,6 +6,7 @@ import json
 import logging
 import signal
 import threading
+import time
 
 from .cache import atomic_write, locked
 from .config import Config, SYNC_MODES, SyncError
@@ -13,6 +14,23 @@ from .sync import Synchronizer
 from .multi_sync import MultiSynchronizer
 
 log = logging.getLogger(__name__)
+
+
+def sync_cycle(sync, *, play: bool = True) -> dict:
+    """Time all sources and destinations, excluding the wait between cycles."""
+    started = time.monotonic()
+    try:
+        sync.refresh()
+        result = sync.sync_album(play=play)
+    except (SyncError, OSError):
+        log.error("Sync cycle failed; %.1fs", time.monotonic() - started)
+        raise
+    if result.get("errors"):
+        log.warning("Sync cycle finished with %d errors; %.1fs",
+                    len(result["errors"]), time.monotonic() - started)
+    else:
+        log.info("Sync cycle complete; %.1fs", time.monotonic() - started)
+    return result
 
 
 def run(sync):
@@ -23,8 +41,7 @@ def run(sync):
     with locked(sync.config.data_dir):
         while not stop.is_set():
             try:
-                sync.refresh()
-                result = sync.sync_album(play=first)
+                result = sync_cycle(sync, play=first)
                 if result["items"]:
                     first = False
             except (SyncError, OSError) as error:
@@ -79,9 +96,7 @@ def main() -> int:
         else:
             with locked(sync.config.data_dir):
                 if args.command in {"cache", "sync"}:
-                    result = sync.refresh(download=True) if args.command == "cache" else sync.refresh()
-                    if args.command == "sync":
-                        result = sync.sync_album()
+                    result = sync.refresh(download=True) if args.command == "cache" else sync_cycle(sync)
                     if result.get("errors"):
                         return 1
                 elif args.command == "repair":
