@@ -52,6 +52,19 @@ def render(values, *, valid=True):
     return {item["kind"]: item for item in objects if item}
 
 
+def load_rendered_config(objects):
+    container = objects["Deployment"]["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item["value"] for item in container["env"]}
+    assert all(isinstance(value, str) for value in env.values()), "Container env must contain strings"
+    with tempfile.TemporaryDirectory() as directory:
+        source_path = Path(directory) / "sources.toml"
+        source_path.write_text(objects["ConfigMap"]["data"]["sources.toml"])
+        env["SOURCES_FILE"] = str(source_path)
+        # Do not inherit the developer's credentials or read their local .env.
+        with patch.dict(os.environ, env, clear=True):
+            return Config.load(env_file=str(Path(directory) / ".env"))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--release-tag")
@@ -65,6 +78,7 @@ def main():
 
     values = yaml.safe_load((CHART / "ci/test-values.yaml").read_text())
     objects = render(values)
+    load_rendered_config(objects)
     assert set(objects) == {"Deployment", "ConfigMap", "PersistentVolumeClaim"}
     deployment = objects["Deployment"]
     pod = deployment["spec"]["template"]["spec"]
@@ -80,6 +94,22 @@ def main():
     assert "storageClassName" not in claim["spec"]
     assert claim["metadata"]["annotations"]["helm.sh/resource-policy"] == "keep"
     assert "Prune=false" in claim["metadata"]["annotations"]["argocd.argoproj.io/sync-options"]
+
+    # Large YAML numbers must reach Python's int() as decimal strings, not
+    # scientific notation. Cover a typical user ID, bounds, and a long interval.
+    for port, user_id, interval in ((9000, 123456789, 30),
+                                   (65535, 2147483647, 1000000), (1, 0, 10)):
+        numeric = copy.deepcopy(values)
+        numeric["config"]["frame"].update(port=port, userId=user_id)
+        numeric["config"]["syncInterval"] = interval
+        rendered = render(numeric)
+        config = load_rendered_config(rendered)
+        assert (config.port, config.user_id, config.sync_interval) == (port, user_id, interval)
+        env = {item["name"]: item["value"] for item in
+               rendered["Deployment"]["spec"]["template"]["spec"]["containers"][0]["env"]}
+        assert env["DIVOOM_PORT"] == str(port)
+        assert env["DIVOOM_USER_ID"] == str(user_id)
+        assert env["SYNC_INTERVAL"] == str(interval)
 
     # Exercise escaping and repeated providers using the real source parser.
     examples = {

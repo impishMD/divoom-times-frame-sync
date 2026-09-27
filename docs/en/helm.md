@@ -2,7 +2,7 @@
 
 **English** | [Русский](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/ru/helm.md)
 
-The chart deploys one Divoom Times Frame Sync worker, a ConfigMap describing its sources, and a persistent volume claim. It uses the public Docker Hub image for AMD64 and ARM64. Chart `0.1.0` defaults to application `0.7.1`.
+The chart deploys one Divoom Times Frame Sync worker, a ConfigMap describing its sources, and a persistent volume claim. It uses the public Docker Hub image for AMD64 and ARM64. Chart `0.1.1` defaults to application `0.7.1`.
 
 The Pod must reach the frame's IP on TCP port `9000` (or your configured port), DNS, and the source services over HTTP/HTTPS. Create ordinary destination albums in the Divoom app first. Stop any other sync service managing the same frame before starting this deployment. Each frame needs its own release and data volume.
 
@@ -62,7 +62,7 @@ Requires Helm 3+ and Kubernetes 1.26+.
 helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
 helm repo update
 helm upgrade --install divoom-sync divoom/divoom-times-frame-sync \
-  --version 0.1.0 --namespace divoom-sync --create-namespace \
+  --version 0.1.1 --namespace divoom-sync --create-namespace \
   --values values.yaml
 kubectl -n divoom-sync logs -f deployment/divoom-sync-divoom-times-frame-sync
 ```
@@ -84,7 +84,7 @@ spec:
   source:
     repoURL: https://impishmd.github.io/divoom-times-frame-sync/
     chart: divoom-times-frame-sync
-    targetRevision: 0.1.0
+    targetRevision: 0.1.1
     helm:
       valuesObject:
         existingSecret: tfs-credentials
@@ -119,7 +119,7 @@ Source/config changes trigger a rollout. After changing values inside the extern
 
 `persistence.retain: true` preserves a chart-created PVC on Helm uninstall and Argo CD prune/application deletion. Delete it manually only when its journal is no longer needed. A retained PVC can be reused through `persistence.existingClaim`; deleting the entire namespace also deletes the PVC. To opt into ordinary chart-managed deletion, set `retain: false` and apply that change before uninstalling.
 
-The image tag defaults to `v<Chart.appVersion>`; `image.tag` overrides it and `image.digest` takes precedence over tags. `imagePullSecrets` supports private registries. To update, select a new chart version, review its defaults, and sync/upgrade. See [chart releases](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/chart-releases/v0.1.0.md).
+The image tag defaults to `v<Chart.appVersion>`; `image.tag` overrides it and `image.digest` takes precedence over tags. `imagePullSecrets` supports private registries. To update, select a new chart version, review its defaults, and sync/upgrade. See [chart releases](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/chart-releases/v0.1.1.md).
 
 ## Publishing charts
 

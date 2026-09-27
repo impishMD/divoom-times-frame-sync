@@ -3,6 +3,7 @@ existingSecret: tfs-test
 config:
   frame:
     host: "127.0.0.1"
+    userId: 123456789
   syncInterval: 10
 terminationGracePeriodSeconds: 15
 persistence:

@@ -48,13 +48,14 @@ spec:
             - name: DIVOOM_HOST
               value: {{ .Values.config.frame.host | quote }}
             - name: DIVOOM_PORT
-              value: {{ .Values.config.frame.port | quote }}
+              {{- /* Prevent large numeric values from becoming scientific notation. */}}
+              value: {{ .Values.config.frame.port | int64 | quote }}
             - name: DIVOOM_ALBUM
               value: {{ .Values.config.frame.album | quote }}
             - name: DIVOOM_USER_ID
-              value: {{ .Values.config.frame.userId | quote }}
+              value: {{ .Values.config.frame.userId | int64 | quote }}
             - name: SYNC_INTERVAL
-              value: {{ .Values.config.syncInterval | quote }}
+              value: {{ .Values.config.syncInterval | int64 | quote }}
             - name: SYNC_MODE
               value: {{ .Values.config.syncMode | quote }}
             - name: IMAGE_FIT
