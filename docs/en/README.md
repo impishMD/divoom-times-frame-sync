@@ -101,7 +101,7 @@ docker compose up -d --no-build
 docker compose logs -f
 ```
 
-To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.6.0`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
+To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.7.1`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
 
 The container includes FFmpeg for video conversion. It reads `sources.toml` through a read-only mount and stores sync state in `data/`. It needs outbound access to your album services and the frame's local API, normally on port `9000`. No inbound ports need to be published.
 

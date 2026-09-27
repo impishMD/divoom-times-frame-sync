@@ -101,7 +101,7 @@ docker compose up -d --no-build
 docker compose logs -f
 ```
 
-Чтобы закрепить версию или использовать GHCR, задайте `TFS_IMAGE` в `.env`, например `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.6.0`. У стабильных релизов есть тег версии и `latest`, у предварительных — только тег версии. Для обновления выполните `docker compose pull && docker compose up -d --no-build`. Для сборки из локальных исходников используйте `docker compose up -d --build --pull never`.
+Чтобы закрепить версию или использовать GHCR, задайте `TFS_IMAGE` в `.env`, например `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.7.1`. У стабильных релизов есть тег версии и `latest`, у предварительных — только тег версии. Для обновления выполните `docker compose pull && docker compose up -d --no-build`. Для сборки из локальных исходников используйте `docker compose up -d --build --pull never`.
 
 Контейнер включает FFmpeg для преобразования видео. `sources.toml` подключается только для чтения, состояние синхронизации сохраняется в `data/`. Контейнеру нужен исходящий доступ к сервисам альбомов и локальному API рамки, обычно на порту `9000`. Публиковать входящие порты не требуется.
 
