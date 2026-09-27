@@ -141,7 +141,13 @@ Responses contain `CPLAsset` and `CPLMaster` records. The next request's `startR
 
 The client uses prepared `resJPEGFullRes` or `resJPEGMedRes` resources, preferring `CPLAsset` (rendered edits), then `CPLMaster`. It reads `fileChecksum` and `downloadURL` from the resource, replaces `${f}` with `photo.jpg`, and sends a GET to `*.icloud-content.com`. JPEG versions support HEIC photos without an extra decoder. EXIF orientation is applied during photo preparation.
 
-The revision combines the chosen image's checksum and the asset's `recordModificationDate`; refreshing a CDN URL signature does not trigger another upload. Videos are detected by `itemType` (`public.mpeg-4`, `com.apple.quicktime-movie`, etc.) and skipped; Live Photos are sent as still images. An unknown media type or missing JPEG fails the entire source, preserving the previous album state.
+The photo revision combines the chosen image's checksum and the asset's `recordModificationDate`; refreshing a CDN URL signature does not trigger another upload.
+
+Videos are detected by `itemType`: `public.mpeg-4`, `com.apple.quicktime-movie`, `public.movie`, or `public.video`. The service first looks on `CPLAsset` for rendered edits, then on `CPLMaster`. Within each record it tries `resVidFullRes`, `resVidLargeRes`, `resVidMedRes`, `resVidSmallRes`, and finally `resOriginalRes`. A selected resource must have a nonempty `fileChecksum`, `downloadURL`, and a positive integer `size`. The video revision uses that resource's checksum and the asset's `recordModificationDate`, independently of the preview image and temporary URL signature.
+
+To download video, `${f}` is replaced with `video.mp4` and a streaming GET is sent with `Accept-Encoding: identity`. Every URL and redirect must use HTTPS on a subdomain of `icloud-content.com`, with the default port and no embedded credentials. At most six requests are allowed. Only HTTP 200 with `video/*` or `application/octet-stream` and no content encoding is accepted. `Content-Length`, when present, must equal the resource's `size`; the received byte count must match it even when that header is absent. Partial responses, HTML, expired links, malformed resources, and interrupted downloads fail the sync attempt and preserve existing album items.
+
+The complete video is converted locally to the frame's MP4 format; its WebP cover is generated from the video, so a JPEG preview is optional for video items. Live Photos remain still images. An unknown media type, missing JPEG for a photo, or missing downloadable video fails the entire source, preserving the previous album state. Video preparation, cleanup, mirror/append behavior, and repeat-run deduplication use the same path as other supported video sources.
 
 ## Yandex Disk: public photo albums
 

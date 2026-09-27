@@ -41,7 +41,7 @@ Names in `videos/` contain a hash of the album/item ID and the conversion revisi
 - `.part.mp4` — incomplete conversion, deleted on an ordinary error. A completed result is atomically renamed to `.mp4`.
 - `.mp4`, `.webp` — prepared video and cover. Deleted after verifying both files, the database video flag, album membership, and the saved journal.
 
-Peak storage for one video is the downloaded file plus the converted MP4 and cover. This is temporary space, not a permanent album copy. Source video size is not limited by the screen resolution: Immich returns the original if no transcoded version exists. Google Photos supplies a transcoded download from the public album. Downloads, uploads, and SHA-256 calculations process files in chunks.
+Peak storage for one video is the downloaded file plus the converted MP4 and cover. This is temporary space, not a permanent album copy. Source video size is not limited by the screen resolution: Immich returns the original if no transcoded version exists. Google Photos supplies a transcoded download from the public album. iCloud Photos prefers prepared video resources and falls back to the original when necessary; its advertised resource size is verified during download. Downloads, uploads, and SHA-256 calculations process files in chunks.
 
 ## Errors and restarts
 

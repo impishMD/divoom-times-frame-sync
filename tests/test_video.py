@@ -142,6 +142,36 @@ def test_google_video_upload_cleanup_and_unchanged_second_cycle(video_sync):
     assert source.request.call_count == 3
 
 
+def test_icloud_video_upload_retry_cleanup_and_mirror(video_sync):
+    from test_icloud import listing, video_client
+    from test_sources import ck_photo
+    from test_google_photos import video_response
+
+    sync = video_sync
+    source = video_client(video_response(b"truncated"), video_response())
+    sync.immich = source
+    source.json.side_effect = listing(ck_photo("clip", video=True))
+    sync.refresh()
+    with pytest.raises(SyncError, match="incomplete"):
+        sync.sync_album()
+    assert sync.frame.db.members[123] == {1} and sync.frame.uploads == 0
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    source.json.side_effect = listing(ck_photo("clip", video=True))
+    sync.refresh()
+    result = sync.sync_album()
+    assert result["videos"] == result["downloaded"] == result["uploaded"] == 1
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    source.json.side_effect = listing(ck_photo("clip", video=True))
+    sync.refresh()
+    result = sync.sync_album()
+    assert result["downloaded"] == result["uploaded"] == 0
+    assert source.session.request.call_count == 2
+    source.json.side_effect = listing([])
+    sync.refresh()
+    assert sync.sync_album()["removed"] == 1
+    assert sync.frame.db.members[123] == {1}
+
+
 @pytest.mark.parametrize("damage", ["movie", "cover", "flag"])
 def test_video_readback_failure_keeps_files_and_blocks_pruning(video_sync, damage):
     sync = video_sync

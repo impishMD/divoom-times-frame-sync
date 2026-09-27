@@ -97,10 +97,15 @@ def ck_count(count=2, token="v1"):
 
 
 def ck_photo(name, *, video=False):
-    return [ck_record("master-" + name, "CPLMaster", itemType="public.mpeg-4" if video else "public.heic",
+    records = [ck_record("master-" + name, "CPLMaster", itemType="public.mpeg-4" if video else "public.heic",
                       resJPEGMedRes={"fileChecksum": "checksum-" + name,
                                      "downloadURL": "https://cvws-h2.icloud-content.com/${f}?secret=x"}),
             ck_record(name, "CPLAsset", masterRef={"recordName": "master-" + name}, recordModificationDate=123)]
+    if video:
+        records[0]["fields"]["resVidLargeRes"] = {"value": {
+            "fileChecksum": "video-checksum-" + name, "size": 11,
+            "downloadURL": "https://cvws-h2.icloud-content.com/${f}?secret=video"}}
+    return records
 
 
 def icloud_client(responses):
@@ -109,12 +114,14 @@ def icloud_client(responses):
     return client
 
 
-def test_icloud_rank_pagination_and_video_skip():
+def test_icloud_rank_pagination_and_video_count():
     client = icloud_client([resolved(), ck_count(), {"records": ck_photo("a")},
                            {"records": ck_photo("b", video=True)}, ck_count()])
     album = client.album()
     assert album.name == "Test" and album.id == "zone:owner"
-    assert [p.id for p in album.photos] == ["a"] and album.skipped == 1
+    assert [(p.id, p.kind) for p in album.photos] == [("a", "photo"), ("b", "video")]
+    assert album.photo_count == album.video_count == 1 and album.skipped == 0
+    assert client.videos["b"] == ("https://cvws-h2.icloud-content.com/video.mp4?secret=video", 11)
     assert "${f}" not in client.images["a"]
     calls = client.json.call_args_list
     assert calls[2].kwargs["json"]["query"]["filterBy"][1]["fieldValue"]["value"] == 0

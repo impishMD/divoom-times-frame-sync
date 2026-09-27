@@ -4,7 +4,7 @@
 
 The mode applies to `sync` and `run`. It determines what happens to previously tracked photos that are no longer in a source album or the combined source set for a destination. Storage and autonomous playback on the frame work the same way in both modes.
 
-These rules apply equally to photos and videos. Video is supported from Google Photos and Immich; media kind does not change ownership, album removal, or recovery rules.
+These rules apply equally to photos and videos. Video is supported from Google Photos, iCloud Photos, and Immich; media kind does not change ownership, album removal, or recovery rules.
 
 ## Choosing a mode
 

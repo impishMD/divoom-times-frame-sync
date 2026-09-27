@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Anonymous CloudKit shared collections used by photos.icloud.com."""
-from urllib.parse import urlsplit
+from pathlib import Path
+from urllib.parse import urljoin, urlsplit
+
+import requests
 
 from ..config import SyncError
 from ..source import Album, Asset
@@ -17,6 +20,26 @@ class ICloud(PublicSource):
     label = "iCloud Photos"
     image_domains = ("icloud-content.com",)
     database = "/database/1/com.apple.photos.cloud/production/"
+
+    def __init__(self, url: str):
+        super().__init__(url)
+        self.videos: dict[str, tuple[str, int]] = {}
+
+    @staticmethod
+    def video_resource(asset: dict, master: dict) -> dict:
+        # Rendered edits on the asset take precedence over the original master.
+        # Prefer a prepared rendition to downloading a much larger original.
+        for record in (asset, master):
+            for name in ("resVidFullRes", "resVidLargeRes", "resVidMedRes", "resVidSmallRes", "resOriginalRes"):
+                resource = field(record, name)
+                if resource is not None:
+                    if (not isinstance(resource, dict)
+                            or not isinstance(resource.get("fileChecksum"), str) or not resource["fileChecksum"]
+                            or not isinstance(resource.get("downloadURL"), str) or not resource["downloadURL"]
+                            or type(resource.get("size")) is not int or resource["size"] <= 0):
+                        raise ValueError
+                    return resource
+        raise SyncError("iCloud Photos: video is not ready or has no downloadable resource; retry")
 
     def query(self, query: dict, *, limit: int = 200) -> dict:
         return self.json(self.query_url, params=self.params, headers={"Content-Type": "text/plain"},
@@ -82,12 +105,18 @@ class ICloud(PublicSource):
             end_count, end_token = self.count()
             if end_count != count or (initial_token and end_token and initial_token != end_token):
                 raise ValueError
-            photos, images, skipped = [], {}, 0
+            photos, images, videos = [], {}, {}
             for asset_id, asset in assets.items():
                 master = masters[field(asset, "masterRef")["recordName"]]
                 item_type = field(master, "itemType", "")
                 if item_type in {"com.apple.quicktime-movie", "public.mpeg-4", "public.movie", "public.video"}:
-                    skipped += 1
+                    resource = self.video_resource(asset, master)
+                    revision = f"{resource['fileChecksum']}:{field(asset, 'recordModificationDate')}"
+                    photos.append(Asset(asset_id, revision, asset_id + ".mp4", "video"))
+                    videos[asset_id] = (resource["downloadURL"].replace("${f}", "video.mp4"), resource["size"])
+                    preview = field(asset, "resJPEGFullRes") or field(asset, "resJPEGMedRes") or field(master, "resJPEGFullRes") or field(master, "resJPEGMedRes")
+                    if preview:
+                        images[asset_id] = preview["downloadURL"].replace("${f}", "photo.jpg")
                     continue
                 if item_type not in {"public.jpeg", "public.heic", "public.heif", "public.png", "com.compuserve.gif", "public.tiff", "public.camera-raw-image"}:
                     raise SyncError("iCloud Photos: unsupported media type; keeping previous album")
@@ -100,6 +129,51 @@ class ICloud(PublicSource):
                 photos.append(Asset(asset_id, revision, asset_id + ".jpg"))
                 images[asset_id] = resource["downloadURL"].replace("${f}", "photo.jpg")
             self.images = images
-            return Album(album_id, title, photos, skipped)
+            self.videos = videos
+            return Album(album_id, title, photos)
         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             raise SyncError("iCloud Photos: incomplete or unsupported public album listing; check sharing or retry") from None
+
+    def download_video(self, asset_id: str, destination: Path) -> None:
+        video = self.videos.get(asset_id)
+        if not video:
+            raise SyncError("iCloud Photos: video missing from the last album listing; refresh and retry")
+        url, expected_size = video
+        try:
+            for _ in range(6):
+                parsed = urlsplit(url)
+                if (parsed.scheme != "https" or not (parsed.hostname or "").endswith(".icloud-content.com")
+                        or parsed.port not in {None, 443} or parsed.username or parsed.password):
+                    raise SyncError("iCloud Photos: unsupported video host")
+                with self.request("GET", url, stream=True, allow_redirects=False,
+                                  headers={"Accept-Encoding": "identity"}) as response:
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("Location")
+                        if not location:
+                            raise SyncError("iCloud Photos: invalid video redirect")
+                        url = urljoin(url, location)
+                        continue
+                    content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                    if (response.status_code != 200
+                            or not (content_type.startswith("video/") or content_type == "application/octet-stream")):
+                        raise SyncError("iCloud Photos: video is not ready or response is not a complete video; retry")
+                    if response.headers.get("Content-Encoding", "").lower() not in {"", "identity"}:
+                        raise SyncError("iCloud Photos: unsupported video encoding")
+                    length = response.headers.get("Content-Length")
+                    if length is not None and (not length.isdigit() or int(length) != expected_size):
+                        raise SyncError("iCloud Photos: video length does not match the album resource; retry")
+                    size = 0
+                    with destination.open("wb") as file:
+                        for chunk in response.iter_content(1024 * 1024):
+                            size += len(chunk)
+                            if size > expected_size:
+                                raise SyncError("iCloud Photos: video exceeds the album resource size; retry")
+                            file.write(chunk)
+                    if size != expected_size:
+                        raise SyncError("iCloud Photos: empty or incomplete video; retry")
+                    return
+            raise SyncError("iCloud Photos: too many video redirects")
+        except requests.RequestException:
+            raise SyncError("iCloud Photos: video download interrupted; retry") from None
+        except ValueError:
+            raise SyncError("iCloud Photos: invalid video URL or response; retry") from None
