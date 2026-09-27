@@ -159,7 +159,7 @@ Supported links are `https://disk.yandex.ru/a/<key>`, also on the `.com` domain.
 
 Missing JSON, CAPTCHA, blocking, or access errors stop the read. The service does not solve CAPTCHAs or log into an account.
 
-### Listing all photos
+### Listing photos and videos
 
 ```http
 POST https://disk.yandex.ru/public/api/fetch-album-list
@@ -180,9 +180,34 @@ After enumeration, another page GET must return the same `id` and `modified`. A 
 
 ### Images
 
-Records use `id`, `name`, `modified`, and `meta`. `meta.mediatype=image` identifies a photo; `video` is skipped. Unknown types or malware flags fail the source. A GET fetches the signed `meta.xxxlPreview` or `meta.original` URL; only HTTPS Yandex CDN resources with `Content-Type: image/*` are accepted.
+Records use `id`, `name`, `modified`, and `meta`. `meta.mediatype=image` identifies a photo. Unknown types or malware flags fail the source. A GET fetches the signed `meta.xxxlPreview` or `meta.original` URL; only HTTPS Yandex CDN resources with `Content-Type: image/*` are accepted.
 
 The revision comprises `modified`, `meta.size`, `meta.file_id`, and `meta.mimetype`; a refreshed temporary URL signature does not cause another download.
+
+### Videos
+
+`meta.mediatype=video` identifies a video. It must have a nonempty `albumItemId`, a positive integer `meta.size`, and `meta.mimetype=video/*` or `application/octet-stream`. Malware checks apply to videos too. Its revision uses the same fields as a photo; a JPEG preview is not required because the cover is generated from the video.
+
+When a video needs downloading, the client requests a fresh signed URL using the current public session:
+
+```http
+POST https://disk.yandex.ru/public/api/album-download-url
+Content-Type: text/plain
+X-Requested-With: XMLHttpRequest
+X-Retpath-Y: <sharing link>
+```
+
+The body is encoded like the listing request:
+
+```json
+{"hash":"<album-path>","sk":"<session-token>","itemId":"<album-item-id>"}
+```
+
+`itemId` is the video's `albumItemId`, not its resource `id`; it must never be null, which would request an archive of the whole album. The response must be HTTP 200 with `error=false`, `statusCode=200`, and a nonempty `data.url`. API redirects, CAPTCHA, denied downloads, and malformed responses stop the attempt without pruning existing album members.
+
+A streaming GET follows `data.url` to the original video, using `Accept-Encoding: identity` without forwarding `sk`, the album hash, or API request headers. Every URL and redirect must use HTTPS with the default port and no embedded credentials, on a subdomain of `disk.yandex.ru`, `disk.yandex.com`, `disk.yandex.net`, or `yandex.net`. At most six requests are allowed. Only HTTP 200 with `video/*` or `application/octet-stream` and no content encoding is accepted. `Content-Length`, when present, and the actual byte count must match `meta.size`. Archive, preview, HTML, partial, or truncated responses fail the download.
+
+The original is converted locally to the frame's MP4 format with a WebP cover. Unchanged videos need no download URL request on subsequent sync cycles. Expired links and download failures are retried after refreshing the album; upload verification, cleanup, mirror/append behavior, and deduplication follow the common video pipeline.
 
 ## OneDrive: public albums from personal accounts
 

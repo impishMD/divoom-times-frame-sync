@@ -206,6 +206,36 @@ def test_onedrive_video_retry_cleanup_restart_and_mirror(video_sync):
     assert sync.frame.db.members[123] == {1}
 
 
+def test_yandex_video_retry_cleanup_and_mirror(video_sync):
+    from test_yandex_disk import api_response, bootstrap, item, video_client
+    from test_google_photos import video_response
+
+    sync = video_sync
+    source = video_client(api_response(), video_response(b"short"), api_response(), video_response())
+    sync.immich = source
+    def refresh(resources):
+        source.bootstrap.side_effect = [bootstrap(), bootstrap()]
+        source.page.side_effect = [{"completed": True, "resources": resources}]
+        sync.refresh()
+    refresh([item("clip", video=True)])
+    with pytest.raises(SyncError, match="incomplete"):
+        sync.sync_album()
+    assert sync.frame.db.members[123] == {1} and sync.frame.uploads == 0
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    refresh([item("clip", video=True)])
+    result = sync.sync_album()
+    assert result["videos"] == result["downloaded"] == result["uploaded"] == 1
+    assert not list(sync.config.data_dir.glob("videos/*"))
+    source.session.request.reset_mock()
+    refresh([item("clip", video=True)])
+    result = sync.sync_album()
+    assert result["downloaded"] == result["uploaded"] == 0
+    source.session.request.assert_not_called()  # No new download URL requested either.
+    refresh([])
+    assert sync.sync_album()["removed"] == 1
+    assert sync.frame.db.members[123] == {1}
+
+
 @pytest.mark.parametrize("damage", ["movie", "cover", "flag"])
 def test_video_readback_failure_keeps_files_and_blocks_pruning(video_sync, damage):
     sync = video_sync

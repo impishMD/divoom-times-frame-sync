@@ -6,12 +6,12 @@ Sync **public photo albums** from Google Photos, iCloud Photos, Immich, OneDrive
 
 Add album sharing links, choose destination albums on the frame, and keep them up to date automatically. Combine albums from different services into one slideshow or sync them to separate frame albums.
 
-Photos are stored in the frame's own albums and play **autonomously**. The service only needs to run to pick up changes; stopping it does not stop playback.
+Photos and videos are stored in the frame's own albums and play **autonomously**. The service only needs to run to pick up changes; stopping it does not stop playback.
 
 ## What it does
 
 - Syncs every configured public album in one run, with multiple albums per service.
-- Uploads new photos and supported videos over the local network.
+- Uploads new photos and videos over the local network.
 - Combines sources that share the same destination album.
 - Removes missing items from the destination album or keeps them, depending on the sync mode.
 - Deletes temporary local media files after a verified upload and keeps a small sync journal between runs.
@@ -26,7 +26,7 @@ The service uses **album sharing links** that can be opened without signing into
 | iCloud Photos | `photos.icloud.com/shared/album/...` | Yes | Yes |
 | Immich | `<your-server>/share/...`, optionally with a password | Yes | Yes |
 | OneDrive | `1drv.ms/a/...` from a personal account | Yes | Yes |
-| Yandex Disk | `disk.yandex.ru/a/...` or `disk.yandex.com/a/...` | Yes | Not yet |
+| Yandex Disk | `disk.yandex.ru/a/...` or `disk.yandex.com/a/...` | Yes | Yes |
 
 An account login, OAuth setup, and browser automation are not required to read these albums. Each link grants access to its album, so keep your actual links and passwords in local configuration files.
 
@@ -101,7 +101,7 @@ docker compose up -d --no-build
 docker compose logs -f
 ```
 
-To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.5.0`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
+To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.6.0`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
 
 The container includes FFmpeg for video conversion. It reads `sources.toml` through a read-only mount and stores sync state in `data/`. It needs outbound access to your album services and the frame's local API, normally on port `9000`. No inbound ports need to be published.
 
@@ -153,13 +153,13 @@ The frame displays one album at a time. For one slideshow containing all your so
 
 Photos are resized to 800×1280 and uploaded as WebP. `IMAGE_FIT=contain` keeps the whole image with borders; `cover` fills the screen by cropping.
 
-Video sync is available for Google Photos, iCloud Photos, Immich, and OneDrive albums. Videos are converted locally to MP4 with H.264 video and AAC audio when present, at 800×1280 and 30 fps. Rotation is applied, `IMAGE_FIT` controls framing, and the full duration is retained. Each video is uploaded with a WebP cover and follows the same sync rules as photos. Enable video autoplay on the frame for automatic playback.
+Video sync is available for all five supported services. Videos are converted locally to MP4 with H.264 video and AAC audio when present, at 800×1280 and 30 fps. Rotation is applied, `IMAGE_FIT` controls framing, and the full duration is retained. Each video is uploaded with a WebP cover and follows the same sync rules as photos. Enable video autoplay on the frame for automatic playback.
 
 iCloud Photos supplies downloadable video resources through the public album link. The service prefers rendered edits and prepared video versions, falling back to the original when necessary. Live Photos are synced as still images.
 
 Google Photos supplies a transcoded video download through the public album link. Newly uploaded videos may need time to finish processing on Google's side. If a video is unavailable or its download fails, the service retries on the next cycle and preserves existing album items.
 
-OneDrive supplies the original video through a temporary download link. The service verifies the downloaded size against the album metadata before conversion. Expired links or interrupted downloads are retried on the next cycle.
+OneDrive and Yandex Disk supply original videos through temporary download links. The service verifies the downloaded size against the album metadata before conversion. Expired links or interrupted downloads are retried on the next cycle.
 
 ## Local storage
 
@@ -211,7 +211,7 @@ Restart the service after changing configuration. For Compose, use `docker compo
 ## Current scope
 
 - Sources must be accessible through supported public album links. Private account libraries are not supported.
-- Video from Yandex Disk is currently skipped. iCloud Live Photos are synced as still images.
+- iCloud Live Photos are synced as still images.
 - Legacy iCloud `sharedalbum/#...` links, public folders on Yandex Disk or OneDrive, and OneDrive for Business/SharePoint are not supported.
 - Public album viewers may change their protocols. Frame API compatibility depends on the firmware.
 
