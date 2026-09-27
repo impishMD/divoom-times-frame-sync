@@ -123,12 +123,14 @@ class MultiSynchronizer:
                 if any(s.id not in self.ready for s in specs):
                     log.warning("Repair target %s skipped: incomplete source listing", name)
                     continue
+                started = time.monotonic()
                 try:
                     result = self.target_sync(name, specs, migrate=not dry_run).repair_album(dry_run=dry_run, checked=checked)
                     results.append(result)
                     errors.update({f"{name}:{key}": value for key, value in result["errors"].items()})
                 except (SyncError, OSError) as error:
                     errors["target:" + name] = str(error)
+                    log.error("Repair target %s failed: %s; %.1fs", name, error, time.monotonic() - started)
         finally:
             self.ready = None
         return {"albums": results, "dry_run": dry_run, "errors": errors,

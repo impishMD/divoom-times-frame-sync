@@ -16,12 +16,14 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .config import Config, SyncError
 from .source import Album, Source
+from .timing import timed, timed_operation
 from .frame import device_photo
 from .video import VIDEO_REVISION, file_digest, make_cover, require_ffmpeg, transcode
 
 log = logging.getLogger(__name__)
 
 
+@timed(log, "Writing local file atomically", level=logging.DEBUG)
 def atomic_write(path: Path, content: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".tmp-", dir=path.parent)
@@ -74,6 +76,7 @@ class Cache:
         self.fit = config.image_fit
         self.path = self.directory / "manifest.json"
 
+    @timed(log, "Reading source manifest", level=logging.DEBUG)
     def read(self) -> dict:
         if not self.path.exists():
             return {"version": 1, "photos": []}
@@ -130,15 +133,19 @@ class Cache:
         if downloaded:
             if source is None:
                 raise SyncError("Photo needs downloading; refresh its source before syncing")
-            image = render_photo(source.preview(photo["id"]), self.fit)
-            atomic_write(path, image)
-        else:
-            image = path.read_bytes()
-            if photo.get("sha256") and hashlib.sha256(image).hexdigest() != photo["sha256"]:
-                raise SyncError("Temporary photo checksum mismatch")
-        filename, content = device_photo(image)
-        photo.update(sha256=hashlib.sha256(image).hexdigest(), device_filename=filename,
-                     device_sha256=hashlib.sha256(content).hexdigest())
+            with timed_operation(log, "Downloading photo"):
+                preview = source.preview(photo["id"])
+        with timed_operation(log, "Preparing photo"):
+            if downloaded:
+                image = render_photo(preview, self.fit)
+                atomic_write(path, image)
+            else:
+                image = path.read_bytes()
+                if photo.get("sha256") and hashlib.sha256(image).hexdigest() != photo["sha256"]:
+                    raise SyncError("Temporary photo checksum mismatch")
+            filename, content = device_photo(image)
+            photo.update(sha256=hashlib.sha256(image).hexdigest(), device_filename=filename,
+                         device_sha256=hashlib.sha256(content).hexdigest())
         return filename, content, downloaded
 
     def prepare_video(self, source: Source | None, photo: dict) -> tuple[str, Path, bool]:
@@ -153,41 +160,45 @@ class Cache:
                 download = getattr(source, "download_video", None)
                 if not callable(download):
                     raise SyncError("Video needs downloading from a source with video support")
-                log.info("Downloading video")
-                partial = paths[".download"]
+                with timed_operation(log, "Downloading video", announce=True):
+                    partial = paths[".download"]
+                    try:
+                        partial.touch(mode=0o600)
+                        download(photo["id"], partial)
+                        os.replace(partial, original)
+                    finally:
+                        partial.unlink(missing_ok=True)
+                downloaded = True
+            with timed_operation(log, "Preparing native MP4 video", announce=True):
+                partial = paths[".part.mp4"]
                 try:
                     partial.touch(mode=0o600)
-                    download(photo["id"], partial)
-                    os.replace(partial, original)
+                    details = transcode(original, partial, self.fit)
+                    os.replace(partial, movie)
+                    photo.update(details)
                 finally:
                     partial.unlink(missing_ok=True)
-                downloaded = True
-            log.info("Preparing native MP4 video")
-            partial = paths[".part.mp4"]
-            try:
-                partial.touch(mode=0o600)
-                details = transcode(original, partial, self.fit)
-                os.replace(partial, movie)
-                photo.update(details)
-            finally:
-                partial.unlink(missing_ok=True)
-        digest = file_digest(movie)
-        if prepared and photo.get("device_sha256") and digest != photo["device_sha256"]:
-            raise SyncError("Temporary video checksum mismatch")
+        with timed_operation(log, "Checking prepared video checksum"):
+            digest = file_digest(movie)
+            if prepared and photo.get("device_sha256") and digest != photo["device_sha256"]:
+                raise SyncError("Temporary video checksum mismatch")
         if not prepared:
             cover.unlink(missing_ok=True)
         if not cover.is_file():
             require_ffmpeg()
-            atomic_write(cover, make_cover(movie))
-        cover_digest = file_digest(cover)
-        if prepared and photo.get("preview_sha256") and cover_digest != photo["preview_sha256"]:
-            raise SyncError("Temporary video cover checksum mismatch")
+            with timed_operation(log, "Preparing video cover"):
+                atomic_write(cover, make_cover(movie))
+        with timed_operation(log, "Checking prepared video cover checksum"):
+            cover_digest = file_digest(cover)
+            if prepared and photo.get("preview_sha256") and cover_digest != photo["preview_sha256"]:
+                raise SyncError("Temporary video cover checksum mismatch")
         filename = "vi-" + digest[:24] + ".mp4"
         photo.update(device_filename=filename, device_sha256=digest, preview_sha256=cover_digest)
         # The complete converted file and cover suffice for upload retries.
         original.unlink(missing_ok=True)
         return filename, movie, downloaded
 
+    @timed(log, "Saving media fingerprint", level=logging.DEBUG)
     def remember(self, photo: dict):
         """Commit a fingerprint before deleting bytes, preserving other entries."""
         manifest = self.read()
@@ -200,9 +211,12 @@ class Cache:
 
     def discard(self, photo: dict):
         paths = self.video_paths(photo).values() if photo.get("kind") == "video" else [self.photo_path(photo)]
-        for path in paths:
-            path.unlink(missing_ok=True)
+        if any(path.exists() for path in paths):
+            with timed_operation(log, "Removing temporary %s files", photo.get("kind", "photo")):
+                for path in paths:
+                    path.unlink(missing_ok=True)
 
+    @timed(log, "Cleaning obsolete temporary media", level=logging.DEBUG)
     def clean_unused(self, photos: list[dict]):
         active = {self.photo_path(photo) for photo in photos}
         directory = self.directory / "photos"

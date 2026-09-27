@@ -102,6 +102,22 @@ Both `sync` and each `run` cycle report three elapsed times, measured with a mon
 
 The total can differ slightly from the sum of the displayed stage times because of intermediate work and rounding. A partial failure ends with `Sync cycle finished with N errors`; an exception that stops the cycle produces `Sync cycle failed`, both with elapsed time.
 
+Individual operations also report their duration. For a new photo, for example:
+
+```text
+Downloading photo: complete; 0.4s
+Preparing photo: complete; 0.2s
+Uploading native photo: complete; 1.3s
+Checking photo contents in album Photos: complete; 0.7s
+Removing temporary photo files: complete; 0.0s
+```
+
+Video download, MP4 conversion, cover generation, local checksums, upload, and video/cover verification each have timings. Album membership changes, playback selection, repair operations and summaries, cache preparation, status, screenshot capture, and display restoration also report durations. Timings cover whole operations, including required waiting and retries; nested timings must not be added to their parent duration.
+
+`complete` is emitted after an operation finishes. Long video operations first announce `started; 0.0s elapsed` and later print the final duration; a streaming readback progress line reports MiB read and elapsed time. `failed`, `interrupted`, and `problems found` distinguish errors, cancellation, and completed checks that found damage. Durations use seconds rounded to one decimal place, so a very short operation can show `0.0s`. Reused media do not acquire extra verification or upload operations just to print timings.
+
+Use `.venv/bin/tfs --log-level DEBUG run` for additional timings of frame API calls, database reads, import/membership waits, local manifests, journal writes, and temporary-file maintenance. The default `INFO` level keeps these details out of unchanged cycles. DEBUG is enabled only for application logging; HTTP library debug logging, which can contain private URLs, remains disabled.
+
 `photos` and `videos` count unique prepared photos and videos in the current combined source set; `removed` counts records removed from the destination; `missing items retained` counts tracked records kept by `append` despite their absence from the current set. Manually added photos are not included in these counters.
 
 For removal commands and verification, see [frame-api.md](frame-api.md).

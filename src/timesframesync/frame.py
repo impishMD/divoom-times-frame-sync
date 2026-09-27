@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 import requests
 
 from .config import Config, SyncError
+from .timing import timed, timed_operation
 
 log = logging.getLogger(__name__)
 
@@ -183,6 +184,7 @@ class Frame:
             data["LocalToken"] = self.token
         return data
 
+    @timed(log, "Frame API request", level=logging.DEBUG)
     def _post(self, path: str, data, content_type: str, *, timeout=(5, 60)) -> dict:
         try:
             response = self.session.post(self.base_url + path, data=data, headers={"Content-Type": content_type}, timeout=timeout)
@@ -200,6 +202,7 @@ class Frame:
     def info(self) -> dict:
         return {"config": self.command("Channel/GetConfig"), "clock": self.command("Channel/GetClockInfo")}
 
+    @timed(log, "Reading frame file", level=logging.DEBUG)
     def fetch_file(self, path: str) -> bytes | None:
         if not path.startswith("/userdata/") or ".." in PurePosixPath(path).parts:
             raise SyncError("Invalid device file path")
@@ -212,6 +215,7 @@ class Frame:
         except requests.RequestException:
             raise SyncError("Cannot read back the file from Divoom") from None
 
+    @timed(log, "Reading frame database", level=logging.DEBUG)
     def inventory(self) -> Inventory:
         # Only read a copy. Never modify or upload the device database.
         for attempt in range(3):
@@ -226,10 +230,12 @@ class Frame:
                 time.sleep(0.5)
         raise AssertionError("unreachable")
 
+    @timed(log, "Reading frame file checksum", level=logging.DEBUG)
     def file_digest(self, path: str) -> str | None:
         """Read back a device file without retaining video bytes in memory."""
         if not path.startswith("/userdata/") or ".." in PurePosixPath(path).parts:
             raise SyncError("Invalid device file path")
+        started = time.monotonic()
         try:
             with self.session.get(self.base_url + path, stream=True, timeout=(5, 90)) as response:
                 if response.status_code == 404:
@@ -237,13 +243,14 @@ class Frame:
                 response.raise_for_status()
                 digest = hashlib.sha256()
                 received = 0
-                last_report = time.monotonic()
+                last_report = started
                 for chunk in response.iter_content(1024 * 1024):
                     digest.update(chunk)
                     received += len(chunk)
-                    if time.monotonic() - last_report >= 30:
-                        log.info("Verifying device file: %.1f MiB read", received / 1024**2)
-                        last_report = time.monotonic()
+                    now = time.monotonic()
+                    if now - last_report >= 30:
+                        log.info("Verifying device file: %.1f MiB read; %.1fs elapsed", received / 1024**2, now - started)
+                        last_report = now
                 return digest.hexdigest()
         except requests.RequestException:
             raise SyncError("Cannot read back the file from Divoom") from None
@@ -254,6 +261,7 @@ class Frame:
         body, mime = multipart(self.metadata(command, **values))
         return self._post("/upload", body, mime)
 
+    @timed(log, "Waiting for album membership", level=logging.DEBUG)
     def wait_members(self, album_id: int, *, present=(), absent=()):
         deadline = time.monotonic() + 15
         while True:
@@ -265,11 +273,13 @@ class Frame:
                 raise SyncError("Frame acknowledged the command but native album membership did not change")
             time.sleep(0.5)
 
+    @timed(log, "Adding existing media to album")
     def add_existing(self, album_id: int, pic_id: int):
         self.native_command("Photo/DevicePhotoToAlbum", ToClockId=album_id,
                             ParentClockId=0, ParentItemId=0, PhotoList=[pic_id])
         self.wait_members(album_id, present=[pic_id])
 
+    @timed(log, "Removing media from album")
     def remove_from_album(self, album_id: int, pic_ids: set[int]):
         if not pic_ids:
             return
@@ -277,6 +287,7 @@ class Frame:
                             ParentClockId=0, ParentItemId=0, PhotoList=sorted(pic_ids))
         self.wait_members(album_id, absent=pic_ids)
 
+    @timed(log, "Uploading native photo")
     def import_photo(self, album_id: int, filename: str, content: bytes, user_id: int = 0, *, verify: bool = True) -> dict:
         metadata = self.import_metadata(album_id, filename, user_id)
         body, mime = multipart(metadata, filename, content)
@@ -293,6 +304,7 @@ class Frame:
             FileName=filename, PreviewFileName=preview, PhotoTitle="",
         )
 
+    @timed(log, "Uploading native video", announce=True)
     def import_video(self, album_id: int, filename: str, content: Path, preview: Path, user_id: int = 0, *, verify: bool = True) -> dict:
         from .video import file_digest
         if not filename.endswith(".mp4"):
@@ -303,6 +315,7 @@ class Frame:
             self._post("/upload", body, body.content_type, timeout=(5, 300))
         return self.wait_import(album_id, filename, file_digest(content), preview_digest=file_digest(preview), verify=verify)
 
+    @timed(log, "Waiting for native import", level=logging.DEBUG)
     def wait_import(self, album_id: int, filename: str, digest: str, *, preview_digest: str | None = None, verify: bool = True) -> dict:
         deadline = time.monotonic() + 15
         while True:
@@ -310,17 +323,18 @@ class Frame:
             photo = inventory.find_file(filename)
             if photo:
                 if verify:
-                    if preview_digest is None:
-                        content = self.fetch_file(photo["path"])
-                        actual = hashlib.sha256(content).hexdigest() if content is not None else None
-                    else:
-                        actual = self.file_digest(photo["path"])
-                    if actual != digest:
-                        raise SyncError("Native media read-back verification failed")
-                    if preview_digest is not None:
-                        cover = str(PurePosixPath(photo["path"]).with_suffix(".webp"))
-                        if photo["id"] not in inventory.video_ids or self.file_digest(cover) != preview_digest:
-                            raise SyncError("Native video flag or cover verification failed")
+                    with timed_operation(log, "Checking imported media contents", announce=preview_digest is not None):
+                        if preview_digest is None:
+                            content = self.fetch_file(photo["path"])
+                            actual = hashlib.sha256(content).hexdigest() if content is not None else None
+                        else:
+                            actual = self.file_digest(photo["path"])
+                        if actual != digest:
+                            raise SyncError("Native media read-back verification failed")
+                        if preview_digest is not None:
+                            cover = str(PurePosixPath(photo["path"]).with_suffix(".webp"))
+                            if photo["id"] not in inventory.video_ids or self.file_digest(cover) != preview_digest:
+                                raise SyncError("Native video flag or cover verification failed")
                 if photo["id"] not in inventory.members.get(album_id, set()):
                     self.add_existing(album_id, photo["id"])
                 return photo
@@ -328,20 +342,24 @@ class Frame:
                 raise SyncError("Frame acknowledged upload but the photo is absent from its native database")
             time.sleep(0.5)
 
+    @timed(log, "Exiting custom display control", level=logging.DEBUG)
     def restore(self):
         return self.command("Device/ExitCustomControlMode")
 
+    @timed(log, "Selecting frame clock or album", level=logging.DEBUG)
     def select_clock(self, clock_id: int):
         # Paired selection also suppresses a scheduled dial for this period.
         for _ in range(2):
             self.command("Channel/SetClockSelectId", ClockId=clock_id)
 
+    @timed(log, "Selecting native album playback")
     def play_album(self, album_id: int):
         self.restore()
         self.select_clock(album_id)
         if self.command("Channel/GetClockInfo").get("ClockId") != album_id:
             raise SyncError("Photos are synced, but the frame did not select the native album")
 
+    @timed(log, "Capturing frame screenshot")
     def snapshot(self) -> bytes:
         result = self.command("Device/GetScreenSnapshot")
         path = result.get("snapShotPath", "/userdata/snapshot.webp")

@@ -11,6 +11,7 @@ from .cache import Cache, atomic_write
 from .config import Config, SYNC_MODES, SyncError
 from .frame import Frame
 from .immich import Immich
+from .timing import timed, timed_operation
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class Synchronizer:
                  time.monotonic() - started)
         return result
 
+    @timed(log, "Reading frame journal", level=logging.DEBUG)
     def device_state(self) -> dict:
         path = self.config.data_dir / "device-state.json"
         identity = f"{self.config.host}:{self.config.port}"
@@ -53,10 +55,12 @@ class Synchronizer:
                 previous = {}
         return {**previous, "target": identity}
 
+    @timed(log, "Saving frame journal", level=logging.DEBUG)
     def save_device_state(self, values: dict):
         atomic_write(self.config.data_dir / "device-state.json",
                      json.dumps({**self.device_state(), **values}, indent=2).encode())
 
+    @timed(log, "Restoring previous Divoom display")
     def restore_previous(self):
         self.frame.restore()
         clock_id = self.device_state().get("previous_clock_id")
@@ -71,26 +75,30 @@ class Synchronizer:
 
     def check_file(self, record: dict, photo: dict, inventory) -> list[str]:
         """Network failures raise; only a completed check can report damage."""
-        problems = []
-        if photo.get("kind") == "video":
-            digest = self.frame.file_digest(record["path"])
-            cover = str(PurePosixPath(record["path"]).with_suffix(".webp"))
-            if self.frame.file_digest(cover) != photo["preview_sha256"]:
-                problems.append("cover missing or corrupt")
-        else:
-            content = self.frame.fetch_file(record["path"])
-            digest = hashlib.sha256(content).hexdigest() if content is not None else None
-        if digest != photo["device_sha256"]:
-            problems.append("media missing or corrupt")
-        if (record["id"] in inventory.video_ids) != (photo.get("kind") == "video"):
-            problems.append("wrong media type")
-        return problems
+        kind = "video and cover" if photo.get("kind") == "video" else "photo"
+        with timed_operation(log, "Checking %s contents in album %s", kind, self.config.frame_album,
+                             announce=photo.get("kind") == "video") as operation:
+            problems = []
+            if photo.get("kind") == "video":
+                digest = self.frame.file_digest(record["path"])
+                cover = str(PurePosixPath(record["path"]).with_suffix(".webp"))
+                if self.frame.file_digest(cover) != photo["preview_sha256"]:
+                    problems.append("cover missing or corrupt")
+            else:
+                content = self.frame.fetch_file(record["path"])
+                digest = hashlib.sha256(content).hexdigest() if content is not None else None
+            if digest != photo["device_sha256"]:
+                problems.append("media missing or corrupt")
+            if (record["id"] in inventory.video_ids) != (photo.get("kind") == "video"):
+                problems.append("wrong media type")
+            if problems:
+                operation.status = "problems found"
+            return problems
 
     def audit_file(self, record: dict, photo: dict, inventory, device_id: int, checked: dict) -> list[str]:
         key = (device_id, record["id"], record["path"], photo["device_sha256"],
                photo.get("preview_sha256"), record["id"] in inventory.video_ids)
         if key not in checked:
-            log.info("Repair: checking %s in album %s", "video and cover" if photo.get("kind") == "video" else "photo", self.config.frame_album)
             checked[key] = self.check_file(record, photo, inventory)
         return checked[key]
 
@@ -138,7 +146,6 @@ class Synchronizer:
                 record = inventory.find_media(filename)
                 if record is None:
                     if is_video:
-                        log.info("Uploading native video to album %s", self.config.frame_album)
                         record = self.frame.import_video(album_id, filename, content, cache.cover_path(source_photo), self.config.user_id, verify=False)
                     else:
                         record = self.frame.import_photo(album_id, filename, content, self.config.user_id, verify=False)
@@ -153,7 +160,6 @@ class Synchronizer:
             if trusted:
                 skipped += 1
             else:
-                log.info("Checking %s contents in album %s", "video and cover" if is_video else "photo", self.config.frame_album)
                 problems = self.check_file(record, source_photo, inventory)
                 if problems:
                     raise SyncError("Existing native media has different bytes or metadata (" + ", ".join(problems) + "); run tfs repair")
@@ -216,6 +222,7 @@ class Synchronizer:
                  result["photos"], result["videos"], skipped, checked, downloaded, uploaded, len(removed), len(stale - removed), time.monotonic() - started)
         return result
 
+    @timed(log, "Committing repaired media and album links")
     def _finish_repair(self, pending: dict, photo: dict, inventory, verified: dict, managed: dict, scope: dict, checked: dict):
         """Commit album links only after the replacement's contents are verified."""
         if self.frame.info()["clock"].get("DeviceId") != scope["device_id"]:
@@ -266,6 +273,7 @@ class Synchronizer:
 
     def repair_album(self, *, dry_run: bool = False, checked: dict | None = None) -> dict:
         """Audit current configured media; never prune absent source items or play."""
+        started = time.monotonic()
         manifest = self.cache.read()
         if "album_id" not in manifest:
             raise SyncError("Refresh the source albums before repairing the frame")
@@ -292,6 +300,7 @@ class Synchronizer:
         # Resume a partially committed replacement before examining other items.
         photos = sorted(manifest["photos"], key=lambda p: not (pending and p["id"] == pending["asset_id"]))
         for photo in photos:
+            item_started = time.monotonic()
             cache, source, item = self.photo_sources.get(photo["id"], (self.cache, self.immich, photo))
             try:
                 identity = cache.device_identity(item)
@@ -323,7 +332,7 @@ class Synchronizer:
                     continue
                 result["problems"] += 1
                 result["details"].append({"id": photo["id"], "problems": problems})
-                log.warning("Repair: %s: %s", photo["id"], ", ".join(problems))
+                log.warning("Repair: %s: %s; %.1fs", photo["id"], ", ".join(problems), time.monotonic() - item_started)
                 if dry_run:
                     continue
                 # Invalidate trust before a source download or mutation can fail.
@@ -364,17 +373,18 @@ class Synchronizer:
                     checked[(device_id, replacement["id"], replacement["path"], item["device_sha256"],
                              item.get("preview_sha256"), item.get("kind") == "video")] = []
                     pending = None
+                log.info("Repair item %s restored; %.1fs", photo["id"], time.monotonic() - item_started)
                 result["repaired"] += 1
                 cache.discard(item)
                 inventory = self.frame.inventory()
             except (SyncError, OSError) as error:
                 result["errors"][photo["id"]] = str(error)
-                log.error("Repair failed for %s: %s", photo["id"], error)
+                log.error("Repair failed for %s: %s; %.1fs", photo["id"], error, time.monotonic() - item_started)
                 # Never replace an unfinished transfer's durable journal.
                 if not dry_run and self.device_state().get("pending_repair"):
                     break
         result["checked"] = len(checked) - checks_before
-        log.info("Repair album %s: %d healthy, %d problems, %d repaired, %d errors%s",
+        log.info("Repair album %s: %d healthy, %d problems, %d repaired, %d errors%s; %.1fs",
                  self.config.frame_album, result["healthy"], result["problems"], result["repaired"], len(result["errors"]),
-                 " (dry run)" if dry_run else "")
+                 " (dry run)" if dry_run else "", time.monotonic() - started)
         return result
