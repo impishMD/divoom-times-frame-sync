@@ -15,9 +15,14 @@ from .multi_sync import MultiSynchronizer
 from .timing import timed_operation
 
 log = logging.getLogger(__name__)
+HEARTBEAT_INTERVAL = 10 * 60
 
 
-def sync_cycle(sync, *, play: bool = True) -> dict:
+def has_changes(result: dict) -> bool:
+    return any(result.get(key, 0) for key in ("uploaded", "linked", "removed"))
+
+
+def sync_cycle(sync, *, play: bool = True, report_unchanged: bool = True) -> dict:
     """Time all sources and destinations, excluding the wait between cycles."""
     started = time.monotonic()
     try:
@@ -30,7 +35,11 @@ def sync_cycle(sync, *, play: bool = True) -> dict:
         log.warning("Sync cycle finished with %d errors; %.1fs",
                     len(result["errors"]), time.monotonic() - started)
     else:
-        log.info("Sync cycle complete; %.1fs", time.monotonic() - started)
+        level = logging.INFO if report_unchanged or has_changes(result) else logging.DEBUG
+        linked = f", {result['linked']} linked" if result.get("linked") else ""
+        log.log(level, "Sync cycle complete: %d items, %d uploaded, %d removed%s; %.1fs",
+                result["items"], result["uploaded"], result["removed"], linked,
+                time.monotonic() - started)
     return result
 
 
@@ -39,15 +48,23 @@ def run(sync):
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     first = True
+    last_report = None
     with locked(sync.config.data_dir):
-        while not stop.is_set():
-            try:
-                result = sync_cycle(sync, play=first)
-                if result["items"]:
-                    first = False
-            except (SyncError, OSError) as error:
-                log.error("Sync failed; will retry: %s", error)
-            stop.wait(sync.config.sync_interval)
+        log.info("Service started; sync interval=%ss", sync.config.sync_interval)
+        try:
+            while not stop.is_set():
+                report_unchanged = last_report is None or time.monotonic() - last_report >= HEARTBEAT_INTERVAL
+                try:
+                    result = sync_cycle(sync, play=first, report_unchanged=report_unchanged)
+                    if not result.get("errors") and (report_unchanged or has_changes(result)):
+                        last_report = time.monotonic()
+                    if result["items"]:
+                        first = False
+                except (SyncError, OSError) as error:
+                    log.error("Sync failed; will retry: %s", error)
+                stop.wait(sync.config.sync_interval)
+        finally:
+            log.info("Service stopped")
     # The frame continues its native slideshow after this process exits.
 
 
@@ -55,7 +72,7 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="tfs", description="Divoom Times Frame Sync — public albums from multiple photo services")
     root.add_argument("--env-file", default=".env")
     root.add_argument("--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR"), default="INFO",
-                      help="Application log detail (DEBUG includes API and local metadata timings)")
+                      help="Application log detail (DEBUG includes all cycles and operation timings)")
     root.add_argument("--sources-file", help="TOML list of albums (overrides SOURCES_FILE)")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="Read every source and native frame album status")
@@ -85,7 +102,7 @@ def main() -> int:
         config = Config.load(args.env_file, sync_mode=getattr(args, "sync_mode", None), sources_file=args.sources_file)
         sync = MultiSynchronizer(config) if config.sources_file else Synchronizer(config)
         if args.command == "status" or (args.command == "sync" and args.dry_run):
-            with timed_operation(log, "Reading source and frame status") as operation:
+            with timed_operation(log, "Reading source and frame status", level=logging.INFO) as operation:
                 if isinstance(sync, MultiSynchronizer):
                     result = sync.status()
                     print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -108,7 +125,7 @@ def main() -> int:
             with locked(sync.config.data_dir):
                 if args.command in {"cache", "sync"}:
                     if args.command == "cache":
-                        with timed_operation(log, "Preparing source cache") as operation:
+                        with timed_operation(log, "Preparing source cache", level=logging.INFO) as operation:
                             result = sync.refresh(download=True)
                             if result.get("errors"):
                                 operation.status = "finished with errors"
@@ -117,7 +134,7 @@ def main() -> int:
                     if result.get("errors"):
                         return 1
                 elif args.command == "repair":
-                    with timed_operation(log, "Repair cycle") as operation:
+                    with timed_operation(log, "Repair cycle", level=logging.INFO) as operation:
                         sync.refresh()
                         result = sync.repair_album(dry_run=args.dry_run)
                         print(json.dumps(result, indent=2, ensure_ascii=False))

@@ -249,7 +249,7 @@ class Frame:
                     received += len(chunk)
                     now = time.monotonic()
                     if now - last_report >= 30:
-                        log.info("Verifying device file: %.1f MiB read; %.1fs elapsed", received / 1024**2, now - started)
+                        log.debug("Verifying device file: %.1f MiB read; %.1fs elapsed", received / 1024**2, now - started)
                         last_report = now
                 return digest.hexdigest()
         except requests.RequestException:
@@ -359,7 +359,7 @@ class Frame:
         if self.command("Channel/GetClockInfo").get("ClockId") != album_id:
             raise SyncError("Photos are synced, but the frame did not select the native album")
 
-    @timed(log, "Capturing frame screenshot")
+    @timed(log, "Capturing frame screenshot", level=logging.INFO)
     def snapshot(self) -> bytes:
         result = self.command("Device/GetScreenSnapshot")
         path = result.get("snapShotPath", "/userdata/snapshot.webp")

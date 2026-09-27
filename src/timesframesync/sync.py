@@ -34,7 +34,7 @@ class Synchronizer:
         except (SyncError, OSError) as error:
             log.error("Immich source failed: %s; %.1fs", error, time.monotonic() - started)
             raise
-        log.info("Immich album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped; %.1fs",
+        log.debug("Immich album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped; %.1fs",
                  album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"],
                  time.monotonic() - started)
         return result
@@ -60,7 +60,7 @@ class Synchronizer:
         atomic_write(self.config.data_dir / "device-state.json",
                      json.dumps({**self.device_state(), **values}, indent=2).encode())
 
-    @timed(log, "Restoring previous Divoom display")
+    @timed(log, "Restoring previous Divoom display", level=logging.INFO)
     def restore_previous(self):
         self.frame.restore()
         clock_id = self.device_state().get("previous_clock_id")
@@ -130,7 +130,7 @@ class Synchronizer:
         videos: set[int] = set()
         uploaded = 0
         downloaded = 0
-        checked = skipped = 0
+        checked = skipped = linked = 0
         for photo in manifest["photos"]:
             cache, source, source_photo = self.photo_sources.get(photo["id"], (self.cache, self.immich, photo))
             is_video = source_photo.get("kind") == "video"
@@ -167,6 +167,7 @@ class Synchronizer:
                 checked += 1
             if record["id"] not in inventory.members.get(album_id, set()):
                 self.frame.add_existing(album_id, record["id"])
+                linked += 1
                 inventory = self.frame.inventory()
             if record["id"] not in inventory.members.get(album_id, set()):
                 raise SyncError("Native album membership verification failed")
@@ -216,10 +217,10 @@ class Synchronizer:
         result = {"album": self.config.frame_album, "album_id": album_id,
                   "sync_mode": self.config.sync_mode, "items": len(desired),
                   "photos": len(desired - videos), "videos": len(videos),
-                  "downloaded": downloaded, "uploaded": uploaded, "checked": checked, "skipped": skipped, "removed": len(removed), "retained": len(stale - removed)}
-        log.info("Native album %s (%d), mode=%s: %d photos, %d videos, %d matched metadata, %d content checked, %d downloaded, %d uploaded, %d removed, %d missing items retained; %.1fs",
+                  "downloaded": downloaded, "uploaded": uploaded, "linked": linked, "checked": checked, "skipped": skipped, "removed": len(removed), "retained": len(stale - removed)}
+        log.debug("Native album %s (%d), mode=%s: %d photos, %d videos, %d matched metadata, %d content checked, %d downloaded, %d uploaded, %d linked, %d removed, %d missing items retained; %.1fs",
                  self.config.frame_album, album_id, self.config.sync_mode,
-                 result["photos"], result["videos"], skipped, checked, downloaded, uploaded, len(removed), len(stale - removed), time.monotonic() - started)
+                 result["photos"], result["videos"], skipped, checked, downloaded, uploaded, linked, len(removed), len(stale - removed), time.monotonic() - started)
         return result
 
     @timed(log, "Committing repaired media and album links")
@@ -373,7 +374,7 @@ class Synchronizer:
                     checked[(device_id, replacement["id"], replacement["path"], item["device_sha256"],
                              item.get("preview_sha256"), item.get("kind") == "video")] = []
                     pending = None
-                log.info("Repair item %s restored; %.1fs", photo["id"], time.monotonic() - item_started)
+                log.debug("Repair item %s restored; %.1fs", photo["id"], time.monotonic() - item_started)
                 result["repaired"] += 1
                 cache.discard(item)
                 inventory = self.frame.inventory()

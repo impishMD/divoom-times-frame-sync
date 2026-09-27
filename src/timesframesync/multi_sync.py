@@ -45,7 +45,7 @@ class MultiSynchronizer:
                 result = self.caches[spec.id].sync(self.clients[spec.id], album, download=download)
                 self.ready.add(spec.id)
                 results[spec.id] = result
-                log.info("Source %s (%s), album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped; %.1fs",
+                log.debug("Source %s (%s), album %s: listed %d photos, %d videos; %d prefetched, %d videos skipped; %.1fs",
                          spec.id, spec.provider, album.name, result["photos"], result["videos"], result["downloaded"], result["skipped_videos"],
                          time.monotonic() - started)
             except (SyncError, OSError) as error:
@@ -111,7 +111,7 @@ class MultiSynchronizer:
         # A cached snapshot alone cannot authorize another reconciliation.
         self.ready = None
         return {"albums": results, **{key: sum(r[key] for r in results) for key in
-                                      ("items", "photos", "videos", "downloaded", "uploaded", "removed", "retained", "checked", "skipped")},
+                                      ("items", "photos", "videos", "downloaded", "uploaded", "linked", "removed", "retained", "checked", "skipped")},
                 "errors": errors}
 
     def repair_album(self, *, dry_run: bool = False) -> dict:

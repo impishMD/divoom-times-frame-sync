@@ -127,7 +127,7 @@ For video, also install FFmpeg with `ffprobe` and the `libx264` encoder: `brew i
 
 The command is `tfs`. Press Ctrl+C to stop the service; playback continues on the frame. `SYNC_INTERVAL` controls the wait between sync cycles, not the slideshow interval.
 
-Logs show durations for each source, destination, complete sync cycle, and individual media operations, including photo/video verification. For frame API and local metadata timings, use `.venv/bin/tfs --log-level DEBUG run`. See [log timings](/docs/en/sync-modes.md#checking-operation).
+At the default `INFO` level, logs show startup/shutdown, the first successful cycle, changes, and warnings/errors. When nothing changes, `run` reports a successful cycle once every 10 minutes. Use `.venv/bin/tfs --log-level DEBUG run` for every cycle and all source, destination, media, API, and local metadata timings. See [logging and timings](/docs/en/sync-modes.md#checking-operation).
 
 ## Sync modes
 

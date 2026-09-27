@@ -20,7 +20,8 @@ class OperationTimer:
 
 
 @contextmanager
-def timed_operation(logger, message, *args, level=logging.INFO, announce=False):
+def timed_operation(logger, message, *args, level=logging.DEBUG, announce=False):
+    """Keep successful stages quiet by default; always surface problems."""
     label = message % args if args else message
     timer = OperationTimer()
     if announce:
@@ -32,12 +33,12 @@ def timed_operation(logger, message, *args, level=logging.INFO, announce=False):
         raise
     finally:
         outcome_level = level
-        if level >= logging.INFO and timer.status != "complete":
+        if timer.status != "complete":
             outcome_level = logging.ERROR if timer.status == "failed" else logging.WARNING
         logger.log(outcome_level, "%s: %s; %.1fs", label, timer.status, timer.elapsed)
 
 
-def timed(logger, message, *, level=logging.INFO, announce=False):
+def timed(logger, message, *, level=logging.DEBUG, announce=False):
     """Time an entire operation, including failure paths, preserving its result."""
     def decorate(function):
         @wraps(function)

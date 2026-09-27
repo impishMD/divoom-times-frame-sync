@@ -86,15 +86,30 @@ If the journal (`data/device-state.json` in the legacy layout or `data/targets/<
 
 `status` shows the configured mode and the destination's photo and video counts, including manual additions. `sync --sync-mode mirror --dry-run` shows status with the selected mode without writing to the frame. It does not list planned removals.
 
-Example log for a completed cycle:
+The default `INFO` level shows service startup/shutdown and one summary after the first successful cycle or a cycle that uploads media, restores album membership, or removes items:
 
 ```text
-Source family (immich), album Family: listed 2 photos, 1 videos; 0 prefetched, 0 videos skipped; 0.5s
-Native album Photos (123456), mode=mirror: 2 photos, 1 videos, 3 matched metadata, 0 content checked, 0 downloaded, 0 uploaded, 1 removed, 0 missing items retained; 1.2s
-Sync cycle complete; 1.8s
+INFO Service started; sync interval=30s
+INFO Sync cycle complete: 87 items, 1 uploaded, 0 removed; 9.0s
 ```
 
-Both `sync` and each `run` cycle report three elapsed times, measured with a monotonic clock:
+Unchanged cycles stay quiet. During `run`, a successful cycle is reported again after at least 10 minutes without an INFO summary; the next successful cycle supplies this heartbeat. A one-shot `sync` always reports its result. Warnings, errors, and detected damage remain visible immediately. Failed or partially failed cycles never produce a successful heartbeat.
+
+`items` is the total number of current source items across completed destinations (the same media in two destinations counts twice). `uploaded` and `removed` count changes made in this cycle. A nonzero `linked` counter means media already on the frame was added back to a destination without uploading it again. For per-destination counts and all operation timings, enable DEBUG:
+
+```sh
+.venv/bin/tfs --log-level DEBUG run
+```
+
+Example detailed log for a completed cycle:
+
+```text
+DEBUG Source family (immich), album Family: listed 2 photos, 1 videos; 0 prefetched, 0 videos skipped; 0.5s
+DEBUG Native album Photos (123456), mode=mirror: 2 photos, 1 videos, 3 matched metadata, 0 content checked, 0 downloaded, 0 uploaded, 0 linked, 1 removed, 0 missing items retained; 1.2s
+INFO Sync cycle complete: 3 items, 0 uploaded, 1 removed; 1.8s
+```
+
+At DEBUG, both `sync` and each `run` cycle report three elapsed times, measured with a monotonic clock:
 
 - `Source` (or `Immich album` in single-source mode): reading that source album's complete listing and updating its local manifest. Explicit `cache` runs also include prefetching.
 - `Native album`: synchronizing one destination, including frame database reads, reconciliation, any necessary source downloads and conversion, uploads, verification, journal writes, and playback selection when requested. It excludes source listing and is not the duration of one HTTP request.
@@ -102,7 +117,7 @@ Both `sync` and each `run` cycle report three elapsed times, measured with a mon
 
 The total can differ slightly from the sum of the displayed stage times because of intermediate work and rounding. A partial failure ends with `Sync cycle finished with N errors`; an exception that stops the cycle produces `Sync cycle failed`, both with elapsed time.
 
-Individual operations also report their duration. For a new photo, for example:
+Individual operations report their duration at DEBUG. For a new photo, for example:
 
 ```text
 Downloading photo: complete; 0.4s
@@ -116,7 +131,7 @@ Video download, MP4 conversion, cover generation, local checksums, upload, and v
 
 `complete` is emitted after an operation finishes. Long video operations first announce `started; 0.0s elapsed` and later print the final duration; a streaming readback progress line reports MiB read and elapsed time. `failed`, `interrupted`, and `problems found` distinguish errors, cancellation, and completed checks that found damage. Durations use seconds rounded to one decimal place, so a very short operation can show `0.0s`. Reused media do not acquire extra verification or upload operations just to print timings.
 
-Use `.venv/bin/tfs --log-level DEBUG run` for additional timings of frame API calls, database reads, import/membership waits, local manifests, journal writes, and temporary-file maintenance. The default `INFO` level keeps these details out of unchanged cycles. DEBUG is enabled only for application logging; HTTP library debug logging, which can contain private URLs, remains disabled.
+DEBUG also includes frame API calls, database reads, import/membership waits, local manifests, journal writes, and temporary-file maintenance. Successful per-file operations and source/destination details stay at DEBUG even when a cycle makes changes. Explicit commands such as `repair`, `cache`, `status`, `snapshot`, and `restore` retain INFO completion summaries. DEBUG is enabled only for application logging; HTTP library debug logging, which can contain private URLs, remains disabled.
 
 `photos` and `videos` count unique prepared photos and videos in the current combined source set; `removed` counts records removed from the destination; `missing items retained` counts tracked records kept by `append` despite their absence from the current set. Manually added photos are not included in these counters.
 
