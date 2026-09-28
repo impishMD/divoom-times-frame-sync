@@ -2,7 +2,7 @@
 
 [English](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/en/helm.md) | **Русский**
 
-Чарт создаёт один процесс Divoom Times Frame Sync, ConfigMap с описанием источников и постоянный том. Используется публичный образ Docker Hub для AMD64 и ARM64. Чарт `0.1.2` по умолчанию запускает приложение `0.7.1`.
+Чарт создаёт один процесс Divoom Times Frame Sync, ConfigMap с описанием источников и постоянный том. Используется публичный образ Docker Hub для AMD64 и ARM64. Чарт `0.1.3` по умолчанию запускает приложение `0.7.2`.
 
 Из Pod должны быть доступны IP рамки по TCP/9000 (или настроенному порту), DNS и фотосервисы по HTTP/HTTPS. Заранее создайте обычные целевые альбомы в приложении Divoom. Перед запуском остановите другие экземпляры синхронизатора, работающие с этой рамкой. Для каждой рамки нужны отдельный релиз и том данных.
 
@@ -62,7 +62,7 @@ persistence:
 helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
 helm repo update
 helm upgrade --install divoom-sync divoom/divoom-times-frame-sync \
-  --version 0.1.2 --namespace divoom-sync --create-namespace \
+  --version 0.1.3 --namespace divoom-sync --create-namespace \
   --values values.yaml
 kubectl -n divoom-sync logs -f deployment/divoom-sync-divoom-times-frame-sync
 ```
@@ -84,7 +84,7 @@ spec:
   source:
     repoURL: https://impishmd.github.io/divoom-times-frame-sync/
     chart: divoom-times-frame-sync
-    targetRevision: 0.1.2
+    targetRevision: 0.1.3
     helm:
       valuesObject:
         existingSecret: tfs-credentials
@@ -132,7 +132,7 @@ volumePermissions:
 
 `persistence.retain: true` сохраняет созданный чартом PVC при Helm uninstall, Argo CD prune и удалении Application. Удаляйте его вручную, когда журнал больше не нужен. Сохранённый том можно подключить через `persistence.existingClaim`; удаление всего namespace удаляет и PVC. Чтобы разрешить обычное удаление вместе с чартом, установите `retain: false` и примените настройку до uninstall.
 
-Тег образа по умолчанию — `v<Chart.appVersion>`. Его переопределяет `image.tag`, а `image.digest` имеет приоритет над тегами. Для приватных реестров предусмотрен `imagePullSecrets`. Для обновления выберите новую версию чарта, проверьте её настройки и выполните sync/upgrade. [Заметки о выпуске чарта](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/ru/chart-releases/v0.1.2.md).
+Тег образа по умолчанию — `v<Chart.appVersion>`. Его переопределяет `image.tag`, а `image.digest` имеет приоритет над тегами. Для приватных реестров предусмотрен `imagePullSecrets`. Для обновления выберите новую версию чарта, проверьте её настройки и выполните sync/upgrade. [Заметки о выпуске чарта](https://github.com/impishMD/divoom-times-frame-sync/blob/main/docs/ru/chart-releases/v0.1.3.md).
 
 ## Публикация чартов
 

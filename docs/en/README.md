@@ -107,7 +107,7 @@ The container includes FFmpeg for video conversion. It reads `sources.toml` thro
 
 #### Kubernetes with Helm or Argo CD
 
-The Helm chart supports all five providers, an existing Secret for credentials, and persistent journal storage. Chart `0.1.2` uses application `0.7.1` by default.
+The Helm chart supports all five providers, an existing Secret for credentials, and persistent journal storage. Chart `0.1.3` uses application `0.7.2` by default.
 
 ```sh
 helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/
