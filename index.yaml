@@ -2,6 +2,27 @@ apiVersion: v1
 entries:
   divoom-times-frame-sync:
   - apiVersion: v2
+    appVersion: 0.7.2
+    created: "2026-09-28T13:25:56.36751872Z"
+    description: Sync public photo and video albums to Divoom Times Frame
+    digest: f282744b8c86b910f4c60229097e225c35f7707ef916d0faee972a54e99de634
+    home: https://github.com/impishMD/divoom-times-frame-sync
+    keywords:
+    - divoom
+    - photos
+    - sync
+    kubeVersion: '>=1.26.0-0'
+    maintainers:
+    - name: impishMD
+      url: https://github.com/impishMD
+    name: divoom-times-frame-sync
+    sources:
+    - https://github.com/impishMD/divoom-times-frame-sync
+    type: application
+    urls:
+    - https://github.com/impishMD/divoom-times-frame-sync/releases/download/chart-v0.1.3/divoom-times-frame-sync-0.1.3.tgz
+    version: 0.1.3
+  - apiVersion: v2
     appVersion: 0.7.1
     created: "2026-09-27T22:32:18.546292975Z"
     description: Sync public photo and video albums to Divoom Times Frame
@@ -64,4 +85,4 @@ entries:
     urls:
     - https://github.com/impishMD/divoom-times-frame-sync/releases/download/chart-v0.1.0/divoom-times-frame-sync-0.1.0.tgz
     version: 0.1.0
-generated: "2026-09-27T22:32:18.546300615Z"
+generated: "2026-09-28T13:25:56.367533242Z"
