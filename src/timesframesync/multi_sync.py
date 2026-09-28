@@ -9,7 +9,7 @@ import logging
 import time
 
 from .cache import Cache, atomic_write
-from .config import Config, SyncError
+from .config import Config, FrameUnavailable, SyncError
 from .frame import Frame
 from .providers import create_source
 from .sources_config import load_sources
@@ -90,26 +90,32 @@ class MultiSynchronizer:
         # One native album can be active. Prefer DIVOOM_ALBUM, then config order.
         names = sorted(self.groups, key=lambda name: name != self.config.frame_album)
         played = False
-        for name in names:
-            specs = self.groups[name]
-            if any(s.id not in self.ready for s in specs):
-                log.warning("Target %s skipped: not every source has a complete snapshot", name)
-                continue
-            started = time.monotonic()
-            try:
-                target = self.target_sync(name, specs)
-                result = target.sync_album(play=play and not played)
-                results.append(result)
-                if play and not played and result["items"]:
-                    played = True
-                    previous = target.device_state().get("previous_clock_id")
-                    if previous and not self.root_state.device_state().get("previous_clock_id"):
-                        self.root_state.save_device_state({"previous_clock_id": previous})
-            except (SyncError, OSError) as error:
-                errors["target:" + name] = str(error)
-                log.error("Target %s failed: %s; %.1fs", name, error, time.monotonic() - started)
-        # A cached snapshot alone cannot authorize another reconciliation.
-        self.ready = None
+        try:
+            for name in names:
+                specs = self.groups[name]
+                if any(s.id not in self.ready for s in specs):
+                    log.warning("Target %s skipped: not every source has a complete snapshot", name)
+                    continue
+                started = time.monotonic()
+                try:
+                    target = self.target_sync(name, specs)
+                    result = target.sync_album(play=play and not played)
+                    results.append(result)
+                    if play and not played and result["items"]:
+                        played = True
+                        previous = target.device_state().get("previous_clock_id")
+                        if previous and not self.root_state.device_state().get("previous_clock_id"):
+                            self.root_state.save_device_state({"previous_clock_id": previous})
+                except FrameUnavailable:
+                    # Every destination uses the same frame. Stop immediately,
+                    # preserving any completed operations in their journals.
+                    raise
+                except (SyncError, OSError) as error:
+                    errors["target:" + name] = str(error)
+                    log.error("Target %s failed: %s; %.1fs", name, error, time.monotonic() - started)
+        finally:
+            # A cached snapshot alone cannot authorize another reconciliation.
+            self.ready = None
         return {"albums": results, **{key: sum(r[key] for r in results) for key in
                                       ("items", "photos", "videos", "downloaded", "uploaded", "linked", "removed", "retained", "checked", "skipped")},
                 "errors": errors}

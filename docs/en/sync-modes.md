@@ -95,6 +95,18 @@ INFO Sync cycle complete: 87 items, 1 uploaded, 0 removed; 9.0s
 
 Unchanged cycles stay quiet. During `run`, a successful cycle is reported again after at least 10 minutes without an INFO summary; the next successful cycle supplies this heartbeat. A one-shot `sync` always reports its result. Warnings, errors, and detected damage remain visible immediately. Failed or partially failed cycles never produce a successful heartbeat.
 
+Before reading source albums, `sync` and each `run` cycle send the read-only `Channel/GetClockInfo` request to the frame, with connection/read timeouts of 3 seconds each. A connection failure or timeout skips the cycle: sources are not queried, media is not downloaded, and manifests and journals remain unchanged. `run` retries after `SYNC_INTERVAL` and resumes automatically when the frame returns. The `cache` command still works independently of the frame.
+
+An outage produces one warning immediately, then at most one warning every 10 minutes while it persists. Other skipped cycles and nested operation timings are DEBUG-only. After a cycle can proceed without a frame transport failure, the service reports recovery and the cycle result. An API rejection, HTTP error, or malformed JSON remains an error rather than an offline-frame skip. A one-shot `sync` exits nonzero if the frame is unavailable.
+
+```text
+WARNING Frame unavailable; sync cycle skipped; retry in 30s; 3.0s
+INFO Frame connection restored after 126.0s; resuming sync
+INFO Sync cycle complete: 87 items, 0 uploaded, 0 removed; 2.0s
+```
+
+If connectivity fails after the probe, the current cycle is interrupted and remaining destinations are not processed. Completed changes stay recorded in their journals. Existing transfer timeouts still apply to an in-flight request; the preflight check cannot guarantee connectivity throughout a later upload. Nothing is deleted just because the frame is offline, and skipped cycles are never logged as successful.
+
 `items` is the total number of current source items across completed destinations (the same media in two destinations counts twice). `uploaded` and `removed` count changes made in this cycle. A nonzero `linked` counter means media already on the frame was added back to a destination without uploading it again. For per-destination counts and all operation timings, enable DEBUG:
 
 ```sh
@@ -113,7 +125,7 @@ At DEBUG, both `sync` and each `run` cycle report three elapsed times, measured 
 
 - `Source` (or `Immich album` in single-source mode): reading that source album's complete listing and updating its local manifest. Explicit `cache` runs also include prefetching.
 - `Native album`: synchronizing one destination, including frame database reads, reconciliation, any necessary source downloads and conversion, uploads, verification, journal writes, and playback selection when requested. It excludes source listing and is not the duration of one HTTP request.
-- `Sync cycle`: the entire operation across all configured sources and destinations, including preparation between stages. It excludes lock acquisition and the `SYNC_INTERVAL` wait, which starts after this line.
+- `Sync cycle`: the entire operation across all configured sources and destinations, including the availability check and preparation between stages. It excludes lock acquisition and the `SYNC_INTERVAL` wait, which starts after this line.
 
 The total can differ slightly from the sum of the displayed stage times because of intermediate work and rounding. A partial failure ends with `Sync cycle finished with N errors`; an exception that stops the cycle produces `Sync cycle failed`, both with elapsed time.
 

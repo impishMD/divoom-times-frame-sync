@@ -101,13 +101,13 @@ docker compose up -d --no-build
 docker compose logs -f
 ```
 
-To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.7.1`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
+To pin a version or use GHCR, set `TFS_IMAGE` in `.env`, for example `TFS_IMAGE=ghcr.io/impishmd/divoom-times-frame-sync:v0.7.2`. Stable releases have a version tag and `latest`; prereleases only have a version tag. Use `docker compose pull && docker compose up -d --no-build` to update. To build from your local checkout, use `docker compose up -d --build --pull never`.
 
 The container includes FFmpeg for video conversion. It reads `sources.toml` through a read-only mount and stores sync state in `data/`. It needs outbound access to your album services and the frame's local API, normally on port `9000`. No inbound ports need to be published.
 
 #### Kubernetes with Helm or Argo CD
 
-The Helm chart supports all five providers, an existing Secret for credentials, and persistent journal storage. Chart `0.1.0` uses application `0.7.1` by default.
+The Helm chart supports all five providers, an existing Secret for credentials, and persistent journal storage. Chart `0.1.2` uses application `0.7.1` by default.
 
 ```sh
 helm repo add divoom https://impishmd.github.io/divoom-times-frame-sync/

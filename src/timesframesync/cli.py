@@ -7,9 +7,10 @@ import logging
 import signal
 import threading
 import time
+from dataclasses import dataclass
 
 from .cache import atomic_write, locked
-from .config import Config, SYNC_MODES, SyncError
+from .config import Config, FrameUnavailable, SYNC_MODES, SyncError
 from .sync import Synchronizer
 from .multi_sync import MultiSynchronizer
 from .timing import timed_operation
@@ -18,19 +19,56 @@ log = logging.getLogger(__name__)
 HEARTBEAT_INTERVAL = 10 * 60
 
 
+@dataclass
+class FrameAvailability:
+    unavailable_since: float | None = None
+    last_warning: float | None = None
+
+    def unavailable(self, *, phase: str, interval: int, elapsed: float):
+        now = time.monotonic()
+        if self.unavailable_since is None:
+            self.unavailable_since = now
+        report = self.last_warning is None or now - self.last_warning >= HEARTBEAT_INTERVAL
+        log.log(logging.WARNING if report else logging.DEBUG,
+                "Frame unavailable; sync cycle %s; retry in %ss; %.1fs", phase, interval, elapsed)
+        if report:
+            self.last_warning = now
+
+    def recovered(self) -> bool:
+        if self.unavailable_since is None:
+            return False
+        log.info("Frame connection restored after %.1fs; resuming sync",
+                 time.monotonic() - self.unavailable_since)
+        self.unavailable_since = self.last_warning = None
+        return True
+
+
 def has_changes(result: dict) -> bool:
     return any(result.get(key, 0) for key in ("uploaded", "linked", "removed"))
 
 
-def sync_cycle(sync, *, play: bool = True, report_unchanged: bool = True) -> dict:
+def sync_cycle(sync, *, play: bool = True, report_unchanged: bool = True,
+               availability: FrameAvailability | None = None) -> dict:
     """Time all sources and destinations, excluding the wait between cycles."""
     started = time.monotonic()
+    phase = "skipped"
     try:
+        sync.frame.check_available()
+        phase = "interrupted"
         sync.refresh()
         result = sync.sync_album(play=play)
+    except FrameUnavailable:
+        if availability is not None:
+            availability.unavailable(phase=phase, interval=sync.config.sync_interval,
+                                     elapsed=time.monotonic() - started)
+        else:
+            log.debug("Sync cycle %s: frame unavailable; %.1fs", phase, time.monotonic() - started)
+        raise
     except (SyncError, OSError):
         log.error("Sync cycle failed; %.1fs", time.monotonic() - started)
         raise
+    if availability is not None and availability.recovered():
+        report_unchanged = True
     if result.get("errors"):
         log.warning("Sync cycle finished with %d errors; %.1fs",
                     len(result["errors"]), time.monotonic() - started)
@@ -49,17 +87,22 @@ def run(sync):
         signal.signal(sig, lambda *_: stop.set())
     first = True
     last_report = None
+    availability = FrameAvailability()
     with locked(sync.config.data_dir):
         log.info("Service started; sync interval=%ss", sync.config.sync_interval)
         try:
             while not stop.is_set():
-                report_unchanged = last_report is None or time.monotonic() - last_report >= HEARTBEAT_INTERVAL
+                report_unchanged = (availability.unavailable_since is not None or last_report is None
+                                    or time.monotonic() - last_report >= HEARTBEAT_INTERVAL)
                 try:
-                    result = sync_cycle(sync, play=first, report_unchanged=report_unchanged)
+                    result = sync_cycle(sync, play=first, report_unchanged=report_unchanged,
+                                        availability=availability)
                     if not result.get("errors") and (report_unchanged or has_changes(result)):
                         last_report = time.monotonic()
                     if result["items"]:
                         first = False
+                except FrameUnavailable:
+                    pass  # Already reported once by the cycle; retry after the usual wait.
                 except (SyncError, OSError) as error:
                     log.error("Sync failed; will retry: %s", error)
                 stop.wait(sync.config.sync_interval)

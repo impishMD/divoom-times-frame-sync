@@ -9,7 +9,7 @@ This reference describes every network operation in [frame.py](../../src/timesfr
 | Operation | HTTP | Client method | Purpose |
 | --- | --- | --- | --- |
 | `Channel/GetConfig` | `POST /divoom_api` | `info()` | General display configuration |
-| `Channel/GetClockInfo` | `POST /divoom_api` | `info()`, `play_album()` | Device ID and active album/clock face |
+| `Channel/GetClockInfo` | `POST /divoom_api` | `check_available()`, `info()`, `play_album()` | Device ID and active album/clock face |
 | `Photo/LocalAddToAlbum` | `POST /upload` | `import_photo()`, `import_video()` | Upload a photo or video to a native album |
 | `Photo/DevicePhotoToAlbum` | `POST /upload` | `add_existing()` | Add an existing photo to an album |
 | `Photo/RemovePhotoFromAlbum` | `POST /upload` | `remove_from_album()` | Remove a photo from one album |
@@ -96,6 +96,8 @@ A typical display-control response, abbreviated:
 
 `_post()` checks HTTP status, parses JSON, and requires `ReturnCode == 0`. One observed error was `ReturnCode: 1`, `ReturnMessage: "command timeout"`. Other codes have not been mapped; any nonzero or missing code is an error.
 
+Before source listing, `check_available()` sends one `Channel/GetClockInfo` request with connection/read timeouts of `(3, 3)` seconds. It does not read the database, switch albums, or retry internally. Network connection errors, timeouts, and interrupted response bodies raise `FrameUnavailable` (a `SyncError` subclass); API rejection, HTTP, and JSON errors remain ordinary `SyncError` failures. The cycle handles outages without duplicating nested ERROR logs.
+
 Default connection/read timeouts are `(5, 60)` seconds. Video uploads use `(5, 300)` and streaming file reads use `(5, 90)`. These are network-operation timeouts, not a total sync duration limit. POST requests are not retried automatically: an uncertain import result must first be checked against the database to avoid duplicates. `run` retries the entire cycle after `SYNC_INTERVAL`; `sync` returns an error.
 
 A successful ACK only confirms message acceptance. Photo commands are also verified against the database and file; album selection is verified through `Channel/GetClockInfo`.
@@ -116,7 +118,7 @@ This is a read operation. Success uses the common HTTP/JSON/`ReturnCode` checks.
 
 ## 2. `Channel/GetClockInfo`
 
-**HTTP:** `POST /divoom_api`. **Used by:** `Frame.info()` and verification in `Frame.play_album()`.
+**HTTP:** `POST /divoom_api`. **Used by:** `Frame.check_available()`, `Frame.info()` and verification in `Frame.play_album()`.
 
 Request:
 
@@ -380,7 +382,7 @@ For photos, SHA-256 of the read bytes must match the saved WebP checksum or the 
 
 ## Sequence of one cycle
 
-1. Read complete listings for every source feeding the destination and save manifests. An error here skips the destination before sending frame mutations; independent destinations may still update.
+1. Check frame API availability; if unreachable, skip the cycle without changing local manifests. Read complete listings for every source feeding the destination and save manifests. An error here skips the destination before sending frame mutations; independent destinations may still update.
 2. Read the frame database, find the album by name, and request `Channel/GetConfig` and `Channel/GetClockInfo`.
 3. For each photo and video, resolve its canonical or recovery filename. Reuse verification only when the scoped journal matches ID/path, kind, full content hash, and cover hash; otherwise read and compare SHA-256. Prepare temporary JPEG/WebP files for new or missing photos, or an MP4 with cover for videos. Call `Photo/LocalAddToAlbum` / `Photo/DevicePhotoToAlbum` as needed.
 4. After each verified item, save its journal record and delete the temporary JPEG or MP4/cover pair. Reread the database and check the destination album ID before removing missing records.

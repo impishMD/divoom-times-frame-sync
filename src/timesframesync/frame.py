@@ -16,10 +16,12 @@ from pathlib import Path, PurePosixPath
 
 import requests
 
-from .config import Config, SyncError
+from .config import Config, FrameUnavailable, SyncError
 from .timing import timed, timed_operation
 
 log = logging.getLogger(__name__)
+PROBE_TIMEOUT = (3, 3)
+NETWORK_ERRORS = (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)
 
 
 def validate_filename(filename: str):
@@ -190,8 +192,12 @@ class Frame:
             response = self.session.post(self.base_url + path, data=data, headers={"Content-Type": content_type}, timeout=timeout)
             response.raise_for_status()
             result = response.json()
+        except NETWORK_ERRORS:
+            raise FrameUnavailable("Divoom connection failed or timed out") from None
         except (requests.RequestException, ValueError):
             raise SyncError(f"Divoom {path}: connection, HTTP or JSON error") from None
+        if not isinstance(result, dict):
+            raise SyncError(f"Divoom {path}: expected a JSON object")
         if result.get("ReturnCode") != 0:
             raise SyncError(f"Divoom rejected {path}: code {result.get('ReturnCode')}, {result.get('ReturnMessage', '')}")
         return result
@@ -201,6 +207,12 @@ class Frame:
 
     def info(self) -> dict:
         return {"config": self.command("Channel/GetConfig"), "clock": self.command("Channel/GetClockInfo")}
+
+    @timed(log, "Checking frame availability")
+    def check_available(self):
+        """Read the API before source work, without downloading the frame DB."""
+        body = json.dumps(self.metadata("Channel/GetClockInfo"), separators=(",", ":")).encode()
+        self._post("/divoom_api", body, "application/json", timeout=PROBE_TIMEOUT)
 
     @timed(log, "Reading frame file", level=logging.DEBUG)
     def fetch_file(self, path: str) -> bytes | None:
@@ -212,6 +224,8 @@ class Frame:
                 return None
             response.raise_for_status()
             return response.content
+        except NETWORK_ERRORS:
+            raise FrameUnavailable("Divoom connection failed or timed out") from None
         except requests.RequestException:
             raise SyncError("Cannot read back the file from Divoom") from None
 
@@ -252,6 +266,8 @@ class Frame:
                         log.debug("Verifying device file: %.1f MiB read; %.1fs elapsed", received / 1024**2, now - started)
                         last_report = now
                 return digest.hexdigest()
+        except NETWORK_ERRORS:
+            raise FrameUnavailable("Divoom connection failed or timed out") from None
         except requests.RequestException:
             raise SyncError("Cannot read back the file from Divoom") from None
 

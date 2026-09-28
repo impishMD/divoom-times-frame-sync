@@ -13,6 +13,10 @@ class SyncError(Exception):
     """An actionable error safe to print without credentials."""
 
 
+class FrameUnavailable(SyncError):
+    """A transport failure, distinct from an API rejection or corrupt response."""
+
+
 SYNC_MODES = ("mirror", "append")
 
 
